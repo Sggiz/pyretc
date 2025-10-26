@@ -1,0 +1,7 @@
+# building directories
+_*/
+
+# executables
+*.out
+*.exe
+*.o
