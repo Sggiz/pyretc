@@ -5,3 +5,4 @@ _*/
 *.out
 *.exe
 *.o
+*.byte

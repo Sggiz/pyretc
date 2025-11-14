@@ -1,0 +1,9 @@
+(ocamllex
+  (modules lexer))
+(menhir
+  (modules parser))
+(executable
+  (name pyretc)
+  (promote (until-clean))
+  (modules ast lexer parser x86_64 compile pretty_printer pyretc)
+  (flags ()))
