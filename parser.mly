@@ -12,8 +12,11 @@
 %token <string> IDENT
 %token EOF
 
-%token TRUE FALSE EQ
+%token AND BLOCK CASES ELSE END FALSE FOR FROM FUN IF LAM OR TRUE VAR
+
+%token EQ
 %token LP RP
+
 
 /* Définition des priorités et associativités des tokens */
 
@@ -37,7 +40,7 @@ stmt:
 
 bexpr:
 | e = expr list(b = binop e0 = expr { (b,e0) })
-{ ((e, []): bexpr) }
+    { ((e, []): bexpr) }
 ;
 
 expr: (* incomplet *)

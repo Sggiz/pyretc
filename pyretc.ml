@@ -63,9 +63,14 @@ let () =
 
         Compile.compile_file f !ofile
     with
-        | Lexer.Lexing_error c ->
+        | Lexer.Lexing_error lerr ->
             localisation (Lexing.lexeme_start_p buf);
-            eprintf "Erreur dans l'analysse lexicale: %c@." c;
+            begin match lerr with
+            | Charlerr c ->
+                eprintf "Erreur dans l'analysse lexicale au caractère: '%s'@."
+                    (Char.escaped c)
+            | Message s -> eprintf "%s@." s
+            end;
             exit 1
         | Parser.Error ->
             localisation (Lexing.lexeme_start_p buf);
