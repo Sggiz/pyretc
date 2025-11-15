@@ -6,7 +6,7 @@ all: pyretc.exe
 parse: test/test.arr pyretc.exe
 	_build/default/pyretc.exe --parse-only $<
 
-jcfparse: runtest.sh
+jcfparse: runtest.sh pyretc.exe
 	sh $< -1
 
 

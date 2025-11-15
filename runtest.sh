@@ -2,8 +2,6 @@
 
 option=$1
 
-dune build $(pwd)/_build/default/pyretc.exe
-
 case $option in
     "" )
         $(pwd)/_build/default/pyretc.exe $(pwd)/test/test.arr;;

@@ -4,10 +4,8 @@
 {
     open Lexing
     open Parser
-    type tlerr =
-        | Charlerr of char
-        | Message of string
-    exception Lexing_error of tlerr
+    exception Char_lerr of char
+    exception Message_lerr of string
 
 
     let kwd_tbl = ["and",AND; "block",BLOCK; "cases",CASES; "else",ELSE;
@@ -15,12 +13,16 @@
         "if",IF; "lam",LAM; "or",OR; "true",TRUE; "var",VAR]
     let id_or_kwd s = try List.assoc s kwd_tbl with _ -> IDENT s
 
+    let binop_tbl = ["==",EQ; "<>",NEQ; "<",LNEQ; "<=",LEQ; ">",GNEQ; ">=",GEQ;
+        "+",PLUS; "-",MINUS; "*",TIMES; "/",DIV; "and",AND; "or",OR]
 }
 
 let digit = ['0'-'9']
 let letter = ['a'-'z' 'A' - 'Z' '_']
 let ident = letter ('-'* (letter | digit)+)*
 let integer = ('-' | '+')? (digit)+
+let blank = [' ' '\t' '\n']
+let binoperator = ("=="|"<>"|"<"|"<="|">"|">="|"+"|"-"|"*"|"/"|"and"|"or")
 
 rule token = parse
     | '\n'
@@ -40,6 +42,10 @@ rule token = parse
     | ')'   { RP }
     | ','   { COMMA }
 
+    (* operateurs *)
+    | blank+ (binoperator as binop) blank+
+        { List.assoc binop binop_tbl }
+
     | integer as s
         { INTEGER(int_of_string s) }
     | ('"' | '\'') as c
@@ -50,7 +56,7 @@ rule token = parse
     | ident as s
         { id_or_kwd s }
     | eof       { EOF }
-    | _ as c    { raise (Lexing_error(Charlerr c)) }
+    | _ as c    { raise (Char_lerr c) }
 
 and comment n = parse
     | "#|"
@@ -58,13 +64,12 @@ and comment n = parse
     | "|#"
         { if n = 0 then token lexbuf else comment (n-1) lexbuf}
     | eof
-        { raise (Lexing_error (Message "commentaire non fermé")) }
+        { raise (Message_lerr "commentaire non fermé") }
     | _ { comment n lexbuf }
 
 and string c sl = parse
     | '\n' | eof
-        { raise (Lexing_error(Message
-                "chaîne de caractère qui pendouille")) }
+        { raise (Message_lerr "chaîne de caractère qui pendouille") }
     | '\'' | '"' as c'
         { if c = c' then STRING (String.concat "" @@ List.rev sl)
         else string c (String.make 1 c' :: sl) lexbuf }
@@ -76,6 +81,6 @@ and string c sl = parse
         { string c ("\t" :: sl) lexbuf }
     | "\\n"
         { string c ("\n" :: sl) lexbuf }
-    | _ { raise (Lexing_error (Message
-        "Erreur d'échappement dans la chaîne de caractère : \\")) }
+    | _ { raise (Message_lerr
+        "Erreur d'échappement dans la chaîne de caractère") }
 

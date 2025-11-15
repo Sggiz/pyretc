@@ -2,18 +2,23 @@
 open Ast
 open Format
 
-let binop_assoc = []
+let binop_assoc = [Eq,"=="; Neq,"<>"; Lneq,"<"; Leq,"<="; Gneq,">"; Geq,">=";
+    Add,"+"; Sub,"-"; Mul,"*"; Div,"/"; And,"and"; Or,"or"]
 
 
 let rec pp_bexpr fmt = function
-    | e, [] -> pp_expr fmt e
-    | _ -> fprintf fmt "bexpr@ "
+    | e, [] -> 
+            open_box 0; pp_expr fmt e; close_box ()
+    | e, (b,e')::q -> 
+        pp_bexpr fmt (e, []);
+        fprintf fmt "@ %s@ " (List.assoc b binop_assoc);
+        pp_bexpr fmt (e', q)
 
 and pp_expr fmt = function
     | True -> fprintf fmt "true"
     | False -> fprintf fmt "false"
     | Eint n -> fprintf fmt "%d" n
-    | Estring s -> fprintf fmt "%s" s
+    | Estring s -> fprintf fmt "Str(@[%s@])" s
     | Ecall(caller, bexp_list) ->
         pp_caller fmt caller;
         fprintf fmt "(";
@@ -25,6 +30,10 @@ and pp_expr fmt = function
                 (List.tl bexp_list)
         end;
         fprintf fmt ")"
+    | Ebexpr bexpr -> 
+        fprintf fmt "(@[";
+        pp_bexpr fmt bexpr;
+        fprintf fmt "@])"
     | _ -> fprintf fmt "expr@ "
 
 and pp_caller fmt = function

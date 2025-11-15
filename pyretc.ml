@@ -55,6 +55,8 @@ let () =
     (* Création d'un tampon d'analyse lexicale *)
     let buf = Lexing.from_channel f_in in
 
+    let ping_loc () = localisation (Lexing.lexeme_start_p buf) in
+
     try
         let f = Parser.file Lexer.token buf in
         close_in f_in;
@@ -63,20 +65,24 @@ let () =
 
         Compile.compile_file f !ofile
     with
-        | Lexer.Lexing_error lerr ->
-            localisation (Lexing.lexeme_start_p buf);
-            begin match lerr with
-            | Charlerr c ->
-                eprintf "Erreur dans l'analysse lexicale au caractère: '%s'@."
-                    (Char.escaped c)
-            | Message s -> eprintf "%s@." s
-            end;
+        | Lexer.Char_lerr c ->
+            ping_loc ();
+            eprintf "Erreur dans l'analyse lexicale au caractère: '%s'@."
+                (Char.escaped c);
             exit 1
+        | Lexer.Message_lerr s ->
+            eprintf "%s@." s;
+            exit 1
+
         | Parser.Error ->
-            localisation (Lexing.lexeme_start_p buf);
+            ping_loc ();
             eprintf "Erreur dans l'analyse syntaxique@.";
             exit 1
+
         | Compile.VarUndef s ->
             eprintf "Erreur de compilation: la variable %s n'est pas définie@."
             s;
             exit 1
+
+        | _ -> eprintf "Erreur ???@."; exit 1
+

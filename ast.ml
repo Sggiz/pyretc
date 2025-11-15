@@ -47,5 +47,6 @@ and branch = string * string list option * block
 
 and from = param * bexpr
 
-and binop = Eq | Neq | Lt | Leq | Gt | Geq | Add | Sub | Mul | Div | And | Or
+and binop = Eq | Neq | Lneq | Leq | Gneq | Geq | Add | Sub | Mul | Div
+    | And | Or
 

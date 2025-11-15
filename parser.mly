@@ -3,6 +3,12 @@
 
 %{
     open Ast
+
+    exception Message_perr of string
+
+    let rec is_unique_binop = function
+        | (b1,_)::((b2,_)::_ as q) -> b1 = b2 && is_unique_binop q
+        | _ -> true
 %}
 
 /* Définition des tokens */
@@ -10,14 +16,14 @@
 %token <int> INTEGER
 %token <string> STRING
 %token <string> IDENT
-%token NL EOF
-
-%token AND BLOCK CASES ELSE END FALSE FOR FROM FUN IF LAM OR TRUE VAR
-
 %token <string> CALL
 
-%token EQ
+%token NL EOF
 %token DP LP RP COMMA
+
+%token EQ NEQ LNEQ LEQ GNEQ GEQ PLUS MINUS TIMES DIV AND OR
+
+%token BLOCK CASES ELSE END FALSE FOR FROM FUN IF LAM TRUE VAR
 
 
 /* Définition des priorités et associativités des tokens */
@@ -41,8 +47,10 @@ stmt:
 ;
 
 bexpr:
-| e = expr list(b = binop e0 = expr { (b,e0) })
-    { ((e, []): bexpr) }
+| e = expr bel = list(b = binop e0 = expr { (b,e0) })
+    { if is_unique_binop bel then ((e, bel): bexpr)
+    else raise (Message_perr
+    "Enchaînement ambigu des opérateurs, veuillez utiliser des paranthèses.") }
 ;
 
 expr: (* incomplet *)
@@ -68,4 +76,15 @@ caller:
 
 binop:
 | EQ    { Eq }
+| NEQ   { Neq }
+| LNEQ  { Lneq }
+| LEQ   { Leq }
+| GNEQ  { Gneq }
+| GEQ   { Geq }
+| PLUS  { Add }
+| MINUS { Sub }
+| TIMES { Mul }
+| DIV   { Div }
+| AND   { And }
+| OR    { Or }
 
