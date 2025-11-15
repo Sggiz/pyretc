@@ -23,36 +23,59 @@ let ident = letter ('-'* (letter | digit)+)*
 let integer = ('-' | '+')? (digit)+
 
 rule token = parse
-    | '\n'      { new_line lexbuf; token lexbuf }
+    | '\n'
+        { new_line lexbuf; NL }
 
-    | "#|"      { comment 0 lexbuf }
+    (* commentaires et espaces *)
+    | "#|"
+        { comment 0 lexbuf }
     | '#' [^'|'] [^'\n']*
-                { token lexbuf }
+        { token lexbuf }
+    | ' ' | '\t'
+        { token lexbuf }
+
+    (* caracteres atomiques *)
+    | ")("  { DP }
+    | '('   { LP }
+    | ')'   { RP }
+    | ','   { COMMA }
+
+    | integer as s
+        { INTEGER(int_of_string s) }
+    | ('"' | '\'') as c
+        { string c [] lexbuf }
+
+    | (ident as s) '('
+        { CALL s }
     | ident as s
         { id_or_kwd s }
     | eof       { EOF }
     | _ as c    { raise (Lexing_error(Charlerr c)) }
 
 and comment n = parse
-    | "#|"      { comment (n+1) lexbuf }
-    | "|#"      { if n = 0 then token lexbuf else comment (n-1) lexbuf}
+    | "#|"
+        { comment (n+1) lexbuf }
+    | "|#"
+        { if n = 0 then token lexbuf else comment (n-1) lexbuf}
     | eof
         { raise (Lexing_error (Message "commentaire non fermé")) }
-    | _         { comment n lexbuf }
+    | _ { comment n lexbuf }
 
 and string c sl = parse
     | '\n' | eof
-                { raise (Lexing_error(Message
+        { raise (Lexing_error(Message
                 "chaîne de caractère qui pendouille")) }
     | '\'' | '"' as c'
-                { if c = c' then STRING (String.concat "" sl)
-                else string c (String.make 1 c :: sl) lexbuf }
+        { if c = c' then STRING (String.concat "" @@ List.rev sl)
+        else string c (String.make 1 c' :: sl) lexbuf }
     | [^'\n' '\\' '\'' '"']* as s
-                { string c (s :: sl) lexbuf }
-    | '\\' [ '"' '\'' '\\' ] as s
-                { string c (String.make 1 (s.[1]) :: sl) lexbuf }
-    | "\\t"     { string c ("\t" :: sl) lexbuf }
-    | "\\n"     { string c ("\n" :: sl) lexbuf }
-    | _         { raise (Lexing_error (Message
-                "Erreur d'échappement dans la chaîne de caractère : \\")) }
+        { string c (s :: sl) lexbuf }
+    | '\\' ([ '"' '\'' '\\' ] as c')
+        { string c (String.make 1 c' :: sl) lexbuf }
+    | "\\t"
+        { string c ("\t" :: sl) lexbuf }
+    | "\\n"
+        { string c ("\n" :: sl) lexbuf }
+    | _ { raise (Lexing_error (Message
+        "Erreur d'échappement dans la chaîne de caractère : \\")) }
 

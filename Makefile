@@ -1,9 +1,17 @@
 
-all: test/test1.s test/test1.out
-	test/test1.out
+all: pyretc.exe
 
-parse: test/test1.arr pyretc.exe
+# commandes pratiques
+
+parse: test/test.arr pyretc.exe
 	_build/default/pyretc.exe --parse-only $<
+
+jcfparse: runtest.sh
+	sh $< -1
+
+
+
+# constructions
 
 pyretc.exe:
 	dune build pyretc.exe

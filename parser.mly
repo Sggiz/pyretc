@@ -10,12 +10,14 @@
 %token <int> INTEGER
 %token <string> STRING
 %token <string> IDENT
-%token EOF
+%token NL EOF
 
 %token AND BLOCK CASES ELSE END FALSE FOR FROM FUN IF LAM OR TRUE VAR
 
+%token <string> CALL
+
 %token EQ
-%token LP RP
+%token DP LP RP COMMA
 
 
 /* Définition des priorités et associativités des tokens */
@@ -30,11 +32,11 @@
 %%
 
 file:
-| sl = stmt* EOF   { List.rev sl }
+| NL* sl = stmt* EOF   { sl }
 ;
 
 stmt:
-| b = bexpr
+| b = bexpr NL+
     { Sbexpr b }
 ;
 
@@ -52,6 +54,16 @@ expr: (* incomplet *)
     { Estring s }
 | LP b = bexpr RP
     { Ebexpr b }
+
+| c = caller bel = separated_list(COMMA, bexpr) RP
+    { Ecall(c, bel) }
+;
+
+caller:
+|c = caller bel = separated_list(COMMA, bexpr) DP
+    { Ccall(c, bel) }
+|id = CALL
+    { Cident id }
 ;
 
 binop:
