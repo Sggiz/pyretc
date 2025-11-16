@@ -7,8 +7,8 @@ and block = stmt list (* non vide *)
 
 and stmt =
     | Sfun of string * string list * funbody
-    | Sbind of bool * string * ty option * bexpr (* bool <=> var *)
-    | Srebind of string * bexpr
+    | Sdef of bool * string * ty option * bexpr (* bool <=> var *)
+    | Sredef of string * bexpr
     | Sbexpr of bexpr
 
 and funbody = param list * rty * ublock * block

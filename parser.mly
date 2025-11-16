@@ -19,7 +19,7 @@
 %token <string> CALL
 
 %token NL EOF
-%token DP LP RP COMMA
+%token DP LP RP COMMA DEF REDEF DCOL LARR
 
 %token EQ NEQ LNEQ LEQ GNEQ GEQ PLUS MINUS TIMES DIV AND OR
 
@@ -41,9 +41,27 @@ file:
 | NL* sl = stmt* EOF   { sl }
 ;
 
-stmt:
+stmt: (* incomplet *)
+| VAR? id = IDENT tyo = preceded(DCOL, typerule)?
+DEF b = bexpr NL+
+    { Sdef(false, id, tyo, b) }
+| id = IDENT REDEF b = bexpr NL+
+    { Sredef(id, b) }
 | b = bexpr NL+
     { Sbexpr b }
+;
+
+rtype:
+| LARR ty = typerule
+    { Rtype ty }
+;
+
+typerule:
+| id = IDENT
+tlo = delimited(LNEQ, separated_nonempty_list(COMMA, typerule), GNEQ)?
+    { Tannot(id, tlo) }
+| LP tl = separated_list(COMMA, typerule) rt = rtype RP
+    { Tfun(tl, rt) }
 ;
 
 bexpr:

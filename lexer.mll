@@ -41,6 +41,10 @@ rule token = parse
     | '('   { LP }
     | ')'   { RP }
     | ','   { COMMA }
+    | '='   { DEF }
+    | ":="  { REDEF }
+    | "::"  { DCOL }
+    | "->"  { LARR }
 
     (* operateurs *)
     | blank+ (binoperator as binop) blank+

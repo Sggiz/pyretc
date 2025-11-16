@@ -8,11 +8,12 @@ let binop_assoc = [Eq,"=="; Neq,"<>"; Lneq,"<"; Leq,"<="; Gneq,">"; Geq,">=";
 
 let rec pp_bexpr fmt = function
     | e, [] -> 
-            open_box 0; pp_expr fmt e; close_box ()
+        fprintf fmt "@[%a@]" pp_expr e
     | e, (b,e')::q -> 
-        pp_bexpr fmt (e, []);
-        fprintf fmt "@ %s@ " (List.assoc b binop_assoc);
-        pp_bexpr fmt (e', q)
+        fprintf fmt "%a@ %s@ %a"
+            pp_bexpr (e, [])
+            (List.assoc b binop_assoc)
+            pp_bexpr (e', q)
 
 and pp_expr fmt = function
     | True -> fprintf fmt "true"
@@ -24,16 +25,12 @@ and pp_expr fmt = function
         fprintf fmt "(";
         if not (bexp_list = []) then begin
             pp_bexpr fmt (List.hd bexp_list);
-            List.iter (fun bexp ->
-                fprintf fmt ",@ ";
-                pp_bexpr fmt bexp)
+            List.iter (fun bexp -> fprintf fmt ",@ %a" pp_bexpr bexp)
                 (List.tl bexp_list)
         end;
         fprintf fmt ")"
-    | Ebexpr bexpr -> 
-        fprintf fmt "(@[";
-        pp_bexpr fmt bexpr;
-        fprintf fmt "@])"
+    | Ebexpr bexpr ->
+        fprintf fmt "(@[%a@])" pp_bexpr bexpr
     | _ -> fprintf fmt "expr@ "
 
 and pp_caller fmt = function
@@ -41,16 +38,20 @@ and pp_caller fmt = function
     | Ccall(caller, bexp_list) -> pp_expr fmt (Ecall(caller, bexp_list))
 
 let pp_stmt fmt = function
-    | Sbexpr b -> 
-        fprintf fmt ": @[";
-        pp_bexpr fmt b;
-        fprintf fmt "@]@."
+    | Sdef(bvar, id, _, bexpr) ->
+        fprintf fmt ": %s%s = @[%a@]@."
+            (if bvar then "var " else "")
+            id
+            pp_bexpr bexpr
+    | Sredef(id, bexpr) ->
+        fprintf fmt ": %s := @[%a@]@." id pp_bexpr bexpr
+    | Sbexpr b ->
+        fprintf fmt ": @[%a@]@." pp_bexpr b
     | _ -> fprintf fmt ": @[statement@]@?"
 
 let pp_file fmt f =
-    fprintf fmt "@[<v>file {@.";
-    List.iter (pp_stmt fmt) f;
-    fprintf fmt "}@]"
+    fprintf fmt "@[<v>file {@.%a}@]"
+        (fun fmt f -> List.iter (pp_stmt fmt) f) f
 
 
 let print_file f = printf "@[%a@]@." pp_file f
