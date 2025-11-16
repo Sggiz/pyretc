@@ -43,8 +43,10 @@ rule token = parse
     | ','   { COMMA }
     | '='   { DEF }
     | ":="  { REDEF }
-    | "::"  { DCOL }
+    | blank+ "::" blank+  { DCOL }
     | "->"  { LARR }
+    | '<'   { LANG }
+    | '>'   { RANG }
 
     (* operateurs *)
     | blank+ (binoperator as binop) blank+

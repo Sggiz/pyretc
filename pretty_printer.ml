@@ -37,11 +37,38 @@ and pp_caller fmt = function
     | Cident s -> fprintf fmt "%s" s
     | Ccall(caller, bexp_list) -> pp_expr fmt (Ecall(caller, bexp_list))
 
+let rec pp_type fmt = function
+    | Tannot(s, None) ->
+        fprintf fmt "%s" s
+    | Tannot(s, Some tl) ->
+        fprintf fmt "%s<@[%a%a@]>"
+            s
+            pp_type (List.hd tl)
+            (fun fmt tl -> List.iter (fprintf fmt ",@ %a" pp_type) tl)
+                (List.tl tl)
+    | Tfun([], rt) ->
+        fprintf fmt "(-> @[%a@])" pp_rtype rt
+    | Tfun(tl, rt) ->
+        fprintf fmt "(@[%a%a@]@ -> @[%a@])"
+            pp_type (List.hd tl)
+            (fun fmt tl -> List.iter (fprintf fmt ",@ %a" pp_type) tl)
+                (List.tl tl)
+            pp_rtype rt
+
+and pp_rtype fmt = function | Rtype t -> pp_type fmt t
+
+
 let pp_stmt fmt = function
-    | Sdef(bvar, id, _, bexpr) ->
+    | Sdef(bvar, id, None, bexpr) ->
         fprintf fmt ": %s%s = @[%a@]@."
             (if bvar then "var " else "")
             id
+            pp_bexpr bexpr
+    | Sdef(bvar, id, Some ty, bexpr) ->
+        fprintf fmt ": %s%s :: %a = @[%a@]@."
+            (if bvar then "var " else "")
+            id
+            pp_type ty
             pp_bexpr bexpr
     | Sredef(id, bexpr) ->
         fprintf fmt ": %s := @[%a@]@." id pp_bexpr bexpr

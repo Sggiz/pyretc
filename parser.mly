@@ -19,7 +19,7 @@
 %token <string> CALL
 
 %token NL EOF
-%token DP LP RP COMMA DEF REDEF DCOL LARR
+%token DP LP RP COMMA DEF REDEF DCOL LARR LANG RANG
 
 %token EQ NEQ LNEQ LEQ GNEQ GEQ PLUS MINUS TIMES DIV AND OR
 
@@ -42,11 +42,13 @@ file:
 ;
 
 stmt: (* incomplet *)
-| VAR? id = IDENT tyo = preceded(DCOL, typerule)?
+| bvar = boption(VAR) id = IDENT tyo = preceded(DCOL, typerule)?
 DEF b = bexpr NL+
-    { Sdef(false, id, tyo, b) }
-| id = IDENT REDEF b = bexpr NL+
-    { Sredef(id, b) }
+    { Sdef(bvar, id, tyo, b) }
+| bvar = boption(VAR) id = IDENT REDEF b = bexpr NL+
+    { if not bvar then Sredef(id, b)
+    else raise (Message_perr
+    "Le mot-clé 'var' ne convient pas à une redéfinition de variable.") }
 | b = bexpr NL+
     { Sbexpr b }
 ;
@@ -58,11 +60,16 @@ rtype:
 
 typerule:
 | id = IDENT
-tlo = delimited(LNEQ, separated_nonempty_list(COMMA, typerule), GNEQ)?
+tlo = delimited(lang,
+    separated_nonempty_list(COMMA, typerule), 
+    rang)?
     { Tannot(id, tlo) }
 | LP tl = separated_list(COMMA, typerule) rt = rtype RP
     { Tfun(tl, rt) }
 ;
+
+%inline lang: LNEQ {} | LANG {};
+%inline rang: GNEQ {} | RANG {};
 
 bexpr:
 | e = expr bel = list(b = binop e0 = expr { (b,e0) })
@@ -78,6 +85,8 @@ expr: (* incomplet *)
     { Eint n }
 | s = STRING
     { Estring s }
+| id = IDENT
+    { Eident id }
 | LP b = bexpr RP
     { Ebexpr b }
 
