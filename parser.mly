@@ -49,8 +49,9 @@ DEF b = bexpr NL+
     { if not bvar then Sredef(id, b)
     else raise (Message_perr
     "Le mot-clé 'var' ne convient pas à une redéfinition de variable.") }
-| b = bexpr NL+
-    { Sbexpr b }
+| bvar = boption(VAR) b = bexpr NL+
+    { if not bvar then Sbexpr b
+    else raise (Message_perr "") }
 ;
 
 rtype:

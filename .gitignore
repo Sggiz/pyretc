@@ -1,6 +1,9 @@
 # building directories
 _*/
 
+# productions
+*.s
+
 # executables
 *.out
 *.exe
