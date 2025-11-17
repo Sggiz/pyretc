@@ -42,16 +42,13 @@ file:
 ;
 
 stmt: (* incomplet *)
-| bvar = boption(VAR) id = IDENT tyo = preceded(DCOL, typerule)?
+| bvar = ioption(VAR) id = IDENT tyo = preceded(DCOL, typerule)?
 DEF b = bexpr NL+
-    { Sdef(bvar, id, tyo, b) }
-| bvar = boption(VAR) id = IDENT REDEF b = bexpr NL+
-    { if not bvar then Sredef(id, b)
-    else raise (Message_perr
-    "Le mot-clé 'var' ne convient pas à une redéfinition de variable.") }
-| bvar = boption(VAR) b = bexpr NL+
-    { if not bvar then Sbexpr b
-    else raise (Message_perr "") }
+    { Sdef( (match bvar with None -> false | Some _ -> true) , id, tyo, b) }
+| id = IDENT REDEF b = bexpr NL+
+    { Sredef(id, b) }
+| b = bexpr NL+
+    { Sbexpr b }
 ;
 
 rtype:
