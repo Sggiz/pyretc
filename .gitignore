@@ -3,6 +3,8 @@ _*/
 
 # productions
 *.s
+*.automaton
+*.conflicts
 
 # executables
 *.out

@@ -43,10 +43,13 @@ rule token = parse
     | ','   { COMMA }
     | '='   { DEF }
     | ":="  { REDEF }
+    | ":"   { COL }
     | blank+ "::" blank+  { DCOL }
     | "->"  { LARR }
     | '<'   { LANG }
     | '>'   { RANG }
+    | "else:"   { ELSEC }
+    | "block:"  { BLOCK }
 
     (* operateurs *)
     | blank+ (binoperator as binop) blank+
@@ -60,8 +63,11 @@ rule token = parse
     | (ident as s) '('
         { CALL s }
     | ident as s
-        { id_or_kwd s }
-    | eof       { EOF }
+        { match id_or_kwd s with
+        |BLOCK -> raise (Message_lerr
+            "Le mot-clé 'block' doit être suivi de ':'")
+        | _ as t -> t }
+    | '\n'* eof       { EOF }
     | _ as c    { raise (Char_lerr c) }
 
 and comment n = parse
@@ -69,6 +75,8 @@ and comment n = parse
         { comment (n+1) lexbuf }
     | "|#"
         { if n = 0 then token lexbuf else comment (n-1) lexbuf}
+    | '\n'
+        { new_line lexbuf; comment n lexbuf }
     | eof
         { raise (Message_lerr "commentaire non fermé") }
     | _ { comment n lexbuf }

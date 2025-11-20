@@ -25,4 +25,4 @@ test/%.out: test/%.s
 clean:
 	dune clean
 
-.PHONY: all clean pyretc.exe
+.PHONY: all clean parse jcfparse pyretc.exe

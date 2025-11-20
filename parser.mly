@@ -19,11 +19,11 @@
 %token <string> CALL
 
 %token NL EOF
-%token DP LP RP COMMA DEF REDEF DCOL LARR LANG RANG
+%token DP LP RP COMMA DEF REDEF DCOL COL LARR LANG RANG
 
 %token EQ NEQ LNEQ LEQ GNEQ GEQ PLUS MINUS TIMES DIV AND OR
 
-%token BLOCK CASES ELSE END FALSE FOR FROM FUN IF LAM TRUE VAR
+%token BLOCK CASES ELSE ELSEC END FALSE FOR FROM FUN IF LAM TRUE VAR
 
 
 /* Définition des priorités et associativités des tokens */
@@ -38,22 +38,36 @@
 %%
 
 file:
-| NL* sl = stmt* EOF   { sl }
+| NL* EOF { [] }
+| NL* s0 = fststmt sl = nextstmt* NL* EOF   { sl }
+    (* ici il y a un conflit préblématique, réglé par le lexeur qui ne
+       donne pas de token NL avant EOF *)
 ;
 
-stmt: (* incomplet *)
+block:
+| fstmt = fststmt sl = nextstmt*
+    { ((fstmt :: sl) : block) }
+
+fststmt: (* incomplet *)
 | bvar = ioption(VAR) id = IDENT tyo = preceded(DCOL, typerule)?
-DEF b = bexpr NL+
+DEF b = bexpr
     { Sdef( (match bvar with None -> false | Some _ -> true) , id, tyo, b) }
-| id = IDENT REDEF b = bexpr NL+
+| id = IDENT REDEF b = bexpr
     { Sredef(id, b) }
-| b = bexpr NL+
+| b = bexpr
     { Sbexpr b }
 ;
+
+nextstmt: NL+ s = fststmt { s };
 
 rtype:
 | LARR ty = typerule
     { Rtype ty }
+;
+
+ublock:
+| COL { Colon }
+| BLOCK { BlockColon }
 ;
 
 typerule:
@@ -87,6 +101,12 @@ expr: (* incomplet *)
     { Eident id }
 | LP b = bexpr RP
     { Ebexpr b }
+
+| IF bex = bexpr ub = ublock b = block
+elif = list(ELSE IF be = bexpr COL belif = block { (be, belif) })
+elo = option(ELSEC belo = block { belo })
+END
+    { Econd(bex, ub, b, elif, elo) }
 
 | c = caller bel = separated_list(COMMA, bexpr) RP
     { Ecall(c, bel) }
