@@ -90,7 +90,7 @@ echo
 
 # les bons
 echo -n "bons "
-for f in syntax/good/*.arr; do
+for f in syntax/good/*.arr typing/bad/*.arr typing/good/*.arr exec/*.arr exec-fail/*.arr; do
     echo -n ".";
     max=`expr $max + 1`;
     compile --parse-only $f;
@@ -141,7 +141,7 @@ echo
 
 # les bons
 echo -n "bons "
-for f in typing/good/*.arr; do
+for f in typing/good/*.arr exec/*.arr exec-fail/*.arr; do
     echo -n ".";
     max=`expr $max + 1`;
     compile --type-only $f;

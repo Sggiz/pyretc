@@ -42,8 +42,8 @@ let rec pp_stmt fmt = function
     | Sredef(id, bexpr) ->
         fprintf fmt "%s := @[%a@]" id pp_bexpr bexpr
     | Sbexpr b ->
-        fprintf fmt "%a" pp_bexpr b
-    | _ -> fprintf fmt "@[statement@]"
+        fprintf fmt "@[%a@]" pp_bexpr b
+    | _ -> fprintf fmt "statement"
 
 and pp_block fmt sl =
     pp_stmt fmt @@ List.hd sl;
@@ -62,30 +62,38 @@ and pp_expr fmt = function
     | True -> fprintf fmt "true"
     | False -> fprintf fmt "false"
     | Eint n -> fprintf fmt "%d" n
-    | Estring s | Eident s -> fprintf fmt "Str(@[%s@])" s
+    | Estring s -> fprintf fmt "\"%s\"" @@ String.escaped s
+    | Eident s -> fprintf fmt "%s" s
     | Ebexpr bexpr ->
         fprintf fmt "(@[%a@])" pp_bexpr bexpr
 
+    | Eblock block ->
+        fprintf fmt "@[<v>block:@   @[<v>%a@]@]" pp_block block
+
     | Econd(cond, ub, b, elifl, elo) ->
-        fprintf fmt "if %a :@   @[<v>%a@]@ " pp_bexpr cond pp_block b;
+        open_vbox 0;
+        fprintf fmt "if @[%a@] :@   @[<v>%a@]@ " pp_bexpr cond pp_block b;
         List.iter (fun (cond, b) ->
-            fprintf fmt "else if %a :@   @[<v>%a@]@ " pp_bexpr cond pp_block b)
+            fprintf fmt "else if @[%a@] :@   @[<v>%a@]@ " 
+            pp_bexpr cond pp_block b)
         elifl;
         begin match elo with
         | None -> fprintf fmt "end"
         | Some b -> fprintf fmt "else:@   @[<v>%a@]@ end" pp_block b
-        end
+        end;
+        close_box ()
 
 
     | Ecall(caller, bexp_list) ->
         pp_caller fmt caller;
-        fprintf fmt "(";
-        if not (bexp_list = []) then begin
-            pp_bexpr fmt (List.hd bexp_list);
-            List.iter (fun bexp -> fprintf fmt ",@ %a" pp_bexpr bexp)
-                (List.tl bexp_list)
-        end;
-        fprintf fmt ")"
+        if not (bexp_list = []) then begin 
+            let pp fmt bl =
+                pp_bexpr fmt (List.hd bl);
+                List.iter (fprintf fmt ",@ %a" pp_bexpr) (List.tl bl)
+            in fprintf fmt "(@[%a@])" pp bexp_list
+        end
+        else fprintf fmt "()"
+
     | _ -> fprintf fmt "expr@ "
 
 and pp_caller fmt = function

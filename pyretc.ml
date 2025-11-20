@@ -71,6 +71,7 @@ let () =
                 (Char.escaped c);
             exit 1
         | Lexer.Message_lerr s ->
+            ping_loc ();
             eprintf "%s@." s;
             exit 1
 

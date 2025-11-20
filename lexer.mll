@@ -24,10 +24,8 @@ let integer = ('-' | '+')? (digit)+
 let blank = [' ' '\t' '\n']
 let binoperator = ("=="|"<>"|"<"|"<="|">"|">="|"+"|"-"|"*"|"/"|"and"|"or")
 
-rule token = parse
-    | '\n'
-        { new_line lexbuf; NL }
 
+rule token = parse
     (* commentaires et espaces *)
     | "#|"
         { comment 0 lexbuf }
@@ -35,6 +33,8 @@ rule token = parse
         { token lexbuf }
     | ' ' | '\t'
         { token lexbuf }
+    | '\n'
+        { new_line lexbuf; token lexbuf}
 
     (* caracteres atomiques *)
     | ")("  { DP }
@@ -55,19 +55,32 @@ rule token = parse
     | blank+ (binoperator as binop) blank+
         { List.assoc binop binop_tbl }
 
+    (* entiers *)
     | integer as s
         { INTEGER(int_of_string s) }
+    (* cas problematique : l'assemblage maladif de statement n'est pas permis*)
+    | integer blank* binoperator integer
+        { raise (Message_lerr
+        "Un opérateur binaire doit être encadré d'espaces.") }
+
     | ('"' | '\'') as c
         { string c [] lexbuf }
 
+    (* appels *)
     | (ident as s) '('
         { CALL s }
+    (* cas problématique d'appel *)
+        (* 'if (true)' est illicite ici *)
+    | ident blank+ '('
+        { raise (Message_lerr
+        "Il ne doit pas y avoir d'espace entre une fonction et sa paranthèse.")}
+
     | ident as s
         { match id_or_kwd s with
         |BLOCK -> raise (Message_lerr
             "Le mot-clé 'block' doit être suivi de ':'")
         | _ as t -> t }
-    | '\n'* eof       { EOF }
+    | eof       { EOF }
     | _ as c    { raise (Char_lerr c) }
 
 and comment n = parse
@@ -78,12 +91,12 @@ and comment n = parse
     | '\n'
         { new_line lexbuf; comment n lexbuf }
     | eof
-        { raise (Message_lerr "commentaire non fermé") }
+        { raise (Message_lerr "Commentaire non fermé.") }
     | _ { comment n lexbuf }
 
 and string c sl = parse
     | '\n' | eof
-        { raise (Message_lerr "chaîne de caractère qui pendouille") }
+        { raise (Message_lerr "Chaîne de caractère qui pendouille.") }
     | '\'' | '"' as c'
         { if c = c' then STRING (String.concat "" @@ List.rev sl)
         else string c (String.make 1 c' :: sl) lexbuf }
@@ -96,5 +109,5 @@ and string c sl = parse
     | "\\n"
         { string c ("\n" :: sl) lexbuf }
     | _ { raise (Message_lerr
-        "Erreur d'échappement dans la chaîne de caractère") }
+        "Erreur d'échappement dans la chaîne de caractère.") }
 

@@ -9,6 +9,19 @@
     let rec is_unique_binop = function
         | (b1,_)::((b2,_)::_ as q) -> b1 = b2 && is_unique_binop q
         | _ -> true
+
+    let rec is_valid_block ub = function
+        | [Sbexpr _] | [Sredef(_, _)] -> true
+        | [] | [_] -> false
+        | (Sbexpr _)::q | (Sredef(_, _))::q ->
+            begin match ub with
+            | Colon -> false
+            | BlockColon -> is_valid_block ub q
+            end
+        | _::q -> is_valid_block ub q
+
+    let valid_blocks ub = List.for_all (is_valid_block ub)
+
 %}
 
 /* Définition des tokens */
@@ -18,7 +31,7 @@
 %token <string> IDENT
 %token <string> CALL
 
-%token NL EOF
+%token EOF
 %token DP LP RP COMMA DEF REDEF DCOL COL LARR LANG RANG
 
 %token EQ NEQ LNEQ LEQ GNEQ GEQ PLUS MINUS TIMES DIV AND OR
@@ -38,17 +51,14 @@
 %%
 
 file:
-| NL* EOF { [] }
-| NL* s0 = fststmt sl = nextstmt* NL* EOF   { sl }
-    (* ici il y a un conflit préblématique, réglé par le lexeur qui ne
-       donne pas de token NL avant EOF *)
+| sl = stmt* EOF   { sl }
 ;
 
 block:
-| fstmt = fststmt sl = nextstmt*
-    { ((fstmt :: sl) : block) }
+| sl = stmt*
+    { (sl : block) }
 
-fststmt: (* incomplet *)
+stmt: (* incomplet *)
 | bvar = ioption(VAR) id = IDENT tyo = preceded(DCOL, typerule)?
 DEF b = bexpr
     { Sdef( (match bvar with None -> false | Some _ -> true) , id, tyo, b) }
@@ -58,17 +68,14 @@ DEF b = bexpr
     { Sbexpr b }
 ;
 
-nextstmt: NL+ s = fststmt { s };
-
 rtype:
 | LARR ty = typerule
     { Rtype ty }
 ;
 
 ublock:
-| COL { Colon }
+| COL   { Colon }
 | BLOCK { BlockColon }
-;
 
 typerule:
 | id = IDENT
@@ -102,11 +109,27 @@ expr: (* incomplet *)
 | LP b = bexpr RP
     { Ebexpr b }
 
+| BLOCK b = block END
+    { if not @@ is_valid_block BlockColon b then raise (Message_perr
+        "Utilisation incorrecte des blocs.")
+    else Eblock b }
+
 | IF bex = bexpr ub = ublock b = block
 elif = list(ELSE IF be = bexpr COL belif = block { (be, belif) })
 elo = option(ELSEC belo = block { belo })
 END
-    { Econd(bex, ub, b, elif, elo) }
+    { if elo = None && elif = [] then raise (Message_perr
+        "Une expression conditionnelle nécessite un branche else ou else if.")
+
+    else
+    let bloc_list = match elo with
+        | None -> b :: List.map snd elif
+        | Some bel -> b :: bel :: List.map snd elif
+    in
+    if not @@valid_blocks ub bloc_list then raise (Message_perr
+        "Utilisation incorrecte des blocs.")
+
+    else Econd(bex, ub, b, elif, elo) }
 
 | c = caller bel = separated_list(COMMA, bexpr) RP
     { Ecall(c, bel) }
