@@ -63,7 +63,9 @@ let () =
 
         if !parse_only then (Pretty_printer.print_file f; exit 0);
 
-        Compile.compile_file f !ofile
+        Compile.compile_file f !ofile;
+
+        ignore (ping_loc)
     with
         | Lexer.Char_lerr c ->
             ping_loc ();
@@ -73,6 +75,10 @@ let () =
         | Lexer.Message_lerr s ->
             ping_loc ();
             eprintf "%s@." s;
+            exit 1
+        | Lexer.BinopSpace_lerr ->
+            ping_loc ();
+            eprintf "Un opérateur binaire doit être encadré d'espaces.";
             exit 1
 
         | Parser.Error ->

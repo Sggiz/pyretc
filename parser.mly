@@ -4,6 +4,7 @@
 %{
     open Ast
 
+    exception Block_perr
     exception Message_perr of string
 
     let rec is_unique_binop = function
@@ -32,7 +33,7 @@
 %token <string> CALL
 
 %token EOF
-%token DP LP RP COMMA DEF REDEF DCOL COL LARR LANG RANG
+%token DP LP RP COMMA DEF REDEF DCOL COL LARR LANG RANG BAR CARR RANGLP
 
 %token EQ NEQ LNEQ LEQ GNEQ GEQ PLUS MINUS TIMES DIV AND OR
 
@@ -58,7 +59,12 @@ block:
 | sl = stmt*
     { (sl : block) }
 
-stmt: (* incomplet *)
+stmt:
+| FUN id = CALL fb = funbody
+    { Sfun(id, [], fb) }
+| FUN id = IDENT lang idl = separated_nonempty_list(COMMA, i = IDENT { i })
+RANGLP fb = funbody
+    { Sfun(id, idl, fb) }
 | bvar = ioption(VAR) id = IDENT tyo = preceded(DCOL, typerule)?
 DEF b = bexpr
     { Sdef( (match bvar with None -> false | Some _ -> true) , id, tyo, b) }
@@ -66,6 +72,17 @@ DEF b = bexpr
     { Sredef(id, b) }
 | b = bexpr
     { Sbexpr b }
+;
+
+funbody:
+| pl = separated_list(COMMA, param) RP rt = rtype ub = ublock b = block END
+    { if not @@ is_valid_block ub b then raise Block_perr
+    else ((pl, rt, ub, b): funbody) }
+;
+
+param:
+| id = IDENT DCOL t = typerule
+    { ((id, t): param) }
 ;
 
 rtype:
@@ -110,8 +127,7 @@ expr: (* incomplet *)
     { Ebexpr b }
 
 | BLOCK b = block END
-    { if not @@ is_valid_block BlockColon b then raise (Message_perr
-        "Utilisation incorrecte des blocs.")
+    { if not @@ is_valid_block BlockColon b then raise Block_perr
     else Eblock b }
 
 | IF bex = bexpr ub = ublock b = block
@@ -126,13 +142,18 @@ END
         | None -> b :: List.map snd elif
         | Some bel -> b :: bel :: List.map snd elif
     in
-    if not @@valid_blocks ub bloc_list then raise (Message_perr
-        "Utilisation incorrecte des blocs.")
+    if not @@valid_blocks ub bloc_list then raise Block_perr
 
     else Econd(bex, ub, b, elif, elo) }
 
 | c = caller bel = separated_list(COMMA, bexpr) RP
     { Ecall(c, bel) }
+
+| LAM fb = funbody
+    { Elam fb }
+
+| CASES t = typerule RP be = bexpr ub = ublock bl = branch* END
+    { Ecases(t, be, ub, bl) }
 ;
 
 caller:
@@ -141,6 +162,15 @@ caller:
 |id = CALL
     { Cident id }
 ;
+
+branch:
+| BAR id = IDENT carr b = block
+    { ((id, None, b): branch) }
+| BAR id = CALL idl = separated_list(COMMA, p=IDENT{p}) RP carr b = block
+    { ((id, Some(idl), b): branch) }
+;
+
+carr: CARR | GEQ {};
 
 binop:
 | EQ    { Eq }

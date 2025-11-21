@@ -1,27 +1,19 @@
-#|
 
-var deftest :: testtype = 42
-
-var a :: b    <t1, (t2, t3   ,t4->t5)> = 123
-
-typedef :: List< Any > = empty
-1 + +2
-
-if true : 1 else: 2 end
-
-
-if true block:
-    3 
-else if true :
-    print(1)
-    print(2)
-else:
-    4
-end
-
-|#
-
-block:
+fun f(x :: Any) -> Any block: 
     1
 end
+
+fun dam(x :: Number) -> Number: "a" end
+
+lam(x :: Number) -> Number: "a" end
+
+cases (b) 1 block:
+| a => 1
+| b => 2
+| c =>3
+end
+
+lam(x :: Number) -> Number: cases (a) 1: | x => 2 end end
+
+fun f<a>(x :: a) -> a: x end
 

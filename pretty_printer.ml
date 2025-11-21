@@ -5,29 +5,38 @@ open Format
 let binop_assoc = [Eq,"=="; Neq,"<>"; Lneq,"<"; Leq,"<="; Gneq,">"; Geq,">=";
     Add,"+"; Sub,"-"; Mul,"*"; Div,"/"; And,"and"; Or,"or"]
 
+let pp_list sep pp fmt l = if l <> [] then begin
+    pp fmt @@ List.hd l;
+    List.iter (fprintf fmt "%s@ %a" sep pp) @@ List.tl l
+    end
+
+let pp_ident fmt id = fprintf fmt "%s" id
+
+let pp_ublock fmt ub = fprintf fmt "%s"
+    (match ub with Colon->":" |BlockColon->"block:")
 
 let rec pp_type fmt = function
     | Tannot(s, None) ->
         fprintf fmt "%s" s
     | Tannot(s, Some tl) ->
-        fprintf fmt "%s<@[%a%a@]>"
-            s
-            pp_type (List.hd tl)
-            (fun fmt tl -> List.iter (fprintf fmt ",@ %a" pp_type) tl)
-                (List.tl tl)
-    | Tfun([], rt) ->
-        fprintf fmt "(-> @[%a@])" pp_rtype rt
+        fprintf fmt "%s<@[%a@]>" s (pp_list "," pp_type) tl
     | Tfun(tl, rt) ->
-        fprintf fmt "(@[%a%a@]@ -> @[%a@])"
-            pp_type (List.hd tl)
-            (fun fmt tl -> List.iter (fprintf fmt ",@ %a" pp_type) tl)
-                (List.tl tl)
+        fprintf fmt "(@[%a@]@ -> @[%a@])"
+            (pp_list "," pp_type) tl
             pp_rtype rt
 
-and pp_rtype fmt = function | Rtype t -> pp_type fmt t
+and pp_rtype fmt (Rtype t) =
+    fprintf fmt "-> %a" pp_type t
 
 
 let rec pp_stmt fmt = function
+    | Sfun(f, [], fb) ->
+        fprintf fmt "fun %s%a" f pp_funbody fb
+    | Sfun(f, idl, fb) ->
+        fprintf fmt "fun %s<%a>%a"
+            f
+            (pp_list "," pp_ident) idl
+            pp_funbody fb
     | Sdef(bvar, id, None, bexpr) ->
         fprintf fmt "%s%s = @[%a@]"
             (if bvar then "var " else "")
@@ -43,7 +52,16 @@ let rec pp_stmt fmt = function
         fprintf fmt "%s := @[%a@]" id pp_bexpr bexpr
     | Sbexpr b ->
         fprintf fmt "@[%a@]" pp_bexpr b
-    | _ -> fprintf fmt "statement"
+
+and pp_funbody fmt (param_list, rt, ub, b) =
+    fprintf fmt "(%a) %a %a@   @[<v>%a@]@ end"
+        (pp_list "," pp_param) param_list
+        pp_rtype rt
+        pp_ublock ub
+        pp_block b
+
+and pp_param fmt (id, t) =
+    fprintf fmt "%s :: %a" id pp_type t
 
 and pp_block fmt sl =
     pp_stmt fmt @@ List.hd sl;
@@ -72,7 +90,10 @@ and pp_expr fmt = function
 
     | Econd(cond, ub, b, elifl, elo) ->
         open_vbox 0;
-        fprintf fmt "if @[%a@] :@   @[<v>%a@]@ " pp_bexpr cond pp_block b;
+        fprintf fmt "if @[%a@] %a@   @[<v>%a@]@ " 
+            pp_bexpr cond 
+            pp_ublock ub
+            pp_block b;
         List.iter (fun (cond, b) ->
             fprintf fmt "else if @[%a@] :@   @[<v>%a@]@ " 
             pp_bexpr cond pp_block b)
@@ -94,11 +115,27 @@ and pp_expr fmt = function
         end
         else fprintf fmt "()"
 
-    | _ -> fprintf fmt "expr@ "
+    | Elam fb -> fprintf fmt "lam%a" pp_funbody fb
+
+    | Ecases(t, be, ub, bl) ->
+        fprintf fmt "@[<v>@[<v 2>cases (%a) @[%a@] %a@ %a@]@ end@]"
+            pp_type t
+            pp_bexpr be
+            pp_ublock ub
+            (pp_list "" pp_branch) bl
+
+    | _ -> fprintf fmt "expr"
 
 and pp_caller fmt = function
     | Cident s -> fprintf fmt "%s" s
     | Ccall(caller, bexp_list) -> pp_expr fmt (Ecall(caller, bexp_list))
+
+and pp_branch fmt = function
+    | (id, None, b) -> fprintf fmt "| %s => @[<v>%a@]" id pp_block b
+    | (id, Some(pl), b) ->
+        fprintf fmt "| %s(%a) => @[<v>%a@]"
+            id (pp_list "," pp_ident) pl pp_block b
+
 
 let pp_file fmt f =
     fprintf fmt "file {@ %a}"

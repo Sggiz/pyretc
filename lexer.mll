@@ -6,6 +6,7 @@
     open Parser
     exception Char_lerr of char
     exception Message_lerr of string
+    exception BinopSpace_lerr
 
 
     let kwd_tbl = ["and",AND; "block",BLOCK; "cases",CASES; "else",ELSE;
@@ -44,10 +45,13 @@ rule token = parse
     | '='   { DEF }
     | ":="  { REDEF }
     | ":"   { COL }
+    | "|"   { BAR }
     | blank+ "::" blank+  { DCOL }
     | "->"  { LARR }
     | '<'   { LANG }
     | '>'   { RANG }
+    | ">("  { RANGLP }
+    | "=>"  { CARR }
     | "else:"   { ELSEC }
     | "block:"  { BLOCK }
 
@@ -60,25 +64,31 @@ rule token = parse
         { INTEGER(int_of_string s) }
     (* cas problematique : l'assemblage maladif de statement n'est pas permis*)
     | integer blank* binoperator integer
-        { raise (Message_lerr
-        "Un opérateur binaire doit être encadré d'espaces.") }
+        { raise BinopSpace_lerr }
 
     | ('"' | '\'') as c
         { string c [] lexbuf }
 
-    (* appels *)
-    | (ident as s) '('
-        { CALL s }
+    (* appel *)
+    | (ident as id) '('
+        { match id with
+            | "lam" -> LAM
+            | "cases" -> raise (Message_lerr
+                "Il manque un espace entre 'cases' et son type associé.")
+            | _ -> CALL id }
     (* cas problématique d'appel *)
         (* 'if (true)' est illicite ici *)
-    | ident blank+ '('
-        { raise (Message_lerr
+    | (ident as id) blank+ '('
+        { match id with
+            | "cases" -> CASES
+            | _ -> raise (Message_lerr
         "Il ne doit pas y avoir d'espace entre une fonction et sa paranthèse.")}
 
     | ident as s
         { match id_or_kwd s with
         |BLOCK -> raise (Message_lerr
             "Le mot-clé 'block' doit être suivi de ':'")
+        | AND | OR -> raise BinopSpace_lerr
         | _ as t -> t }
     | eof       { EOF }
     | _ as c    { raise (Char_lerr c) }
