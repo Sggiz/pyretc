@@ -106,14 +106,9 @@ and pp_expr fmt = function
 
 
     | Ecall(caller, bexp_list) ->
-        pp_caller fmt caller;
-        if not (bexp_list = []) then begin 
-            let pp fmt bl =
-                pp_bexpr fmt (List.hd bl);
-                List.iter (fprintf fmt ",@ %a" pp_bexpr) (List.tl bl)
-            in fprintf fmt "(@[%a@])" pp bexp_list
-        end
-        else fprintf fmt "()"
+        fprintf fmt "%a(@[%a@])"
+            pp_caller caller
+            (pp_list "," pp_bexpr) bexp_list
 
     | Elam fb -> fprintf fmt "lam%a" pp_funbody fb
 
@@ -124,7 +119,16 @@ and pp_expr fmt = function
             pp_ublock ub
             (pp_list "" pp_branch) bl
 
-    | _ -> fprintf fmt "expr"
+    | Eloop(c, fl, rt, ub, b) ->
+        fprintf fmt "@[<v>for %a(%a) %a %a@ @[<v>%a@]@ end@]"
+            pp_caller c
+            (pp_list "," pp_from) fl
+            pp_rtype rt
+            pp_ublock ub
+            pp_block b
+
+and pp_from fmt (p, be) =
+    fprintf fmt "%a from %a" pp_param p pp_bexpr be
 
 and pp_caller fmt = function
     | Cident s -> fprintf fmt "%s" s
@@ -133,7 +137,7 @@ and pp_caller fmt = function
 and pp_branch fmt = function
     | (id, None, b) -> fprintf fmt "| %s => @[<v>%a@]" id pp_block b
     | (id, Some(pl), b) ->
-        fprintf fmt "| %s(%a) => @[<v>%a@]"
+        fprintf fmt "| %s(@[%a@]) => @[<v>%a@]"
             id (pp_list "," pp_ident) pl pp_block b
 
 

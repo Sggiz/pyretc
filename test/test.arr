@@ -1,19 +1,13 @@
 
-fun f(x :: Any) -> Any block: 
-    1
+fun len<a>(l :: List<a>) -> Number:
+  cases(List<a>) l:
+    | empty => 0
+    | link(f, r) => 1 + len(r)
+  end
 end
 
-fun dam(x :: Number) -> Number: "a" end
+l1234 :: List<Number> = link(1, link(2, link(3, link(4, empty))))
 
-lam(x :: Number) -> Number: "a" end
-
-cases (b) 1 block:
-| a => 1
-| b => 2
-| c =>3
-end
-
-lam(x :: Number) -> Number: cases (a) 1: | x => 2 end end
-
-fun f<a>(x :: a) -> a: x end
+print(len(l1234))
+print("\n")
 

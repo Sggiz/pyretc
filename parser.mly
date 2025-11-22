@@ -154,7 +154,14 @@ END
 
 | CASES t = typerule RP be = bexpr ub = ublock bl = branch* END
     { Ecases(t, be, ub, bl) }
+
+| FOR c = caller fl = separated_list(COMMA, from) RP rt = rtype ub = ublock
+b = block END
+    { if not @@ is_valid_block ub b then raise Block_perr
+        else Eloop(c, fl, rt, ub, b) }
 ;
+
+from: p = param FROM be = bexpr { ((p, be): from) }
 
 caller:
 |c = caller bel = separated_list(COMMA, bexpr) DP

@@ -73,8 +73,7 @@ rule token = parse
     | (ident as id) '('
         { match id with
             | "lam" -> LAM
-            | "cases" -> raise (Message_lerr
-                "Il manque un espace entre 'cases' et son type associé.")
+            | "cases" -> CASES
             | _ -> CALL id }
     (* cas problématique d'appel *)
         (* 'if (true)' est illicite ici *)
