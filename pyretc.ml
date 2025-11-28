@@ -63,6 +63,11 @@ let () =
 
         if !parse_only then (Pretty_printer.print_file f; exit 0);
 
+        if !type_only then (
+            Pretty_printer.print_file f;
+            Pretty_type_printer.tprint_file @@ Typer.type_file f;
+            exit 0);
+
         Compile.compile_file f !ofile;
 
         ignore (ping_loc)
@@ -84,6 +89,10 @@ let () =
         | Parser.Error ->
             ping_loc ();
             eprintf "Erreur dans l'analyse syntaxique@.";
+            exit 1
+
+        | Typer.Message_terr s ->
+            eprintf "%s@." s;
             exit 1
 
         | Compile.VarUndef s ->

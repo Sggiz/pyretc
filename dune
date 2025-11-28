@@ -5,5 +5,8 @@
 (executable
   (name pyretc)
   (promote (until-clean))
-  (modules ast lexer parser x86_64 compile pretty_printer pyretc)
+  (modules ast typed_ast
+           lexer parser typer
+           x86_64 compile pyretc
+           pretty_printer pretty_type_printer )
   (flags ()))

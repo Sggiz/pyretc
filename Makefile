@@ -9,6 +9,12 @@ parse: test/test.arr pyretc.exe
 jcfparse: runtest.sh pyretc.exe
 	sh $< -1
 
+type: test/test.arr pyretc.exe
+	_build/default/pyretc.exe --type-only $<
+
+jcftype: runtest.sh pyretc.exe
+	sh $< -2
+
 
 
 # constructions
