@@ -7,3 +7,7 @@ true
 "test" + "t"
 "a" == 2 == false
 
+print
+each
+fold
+

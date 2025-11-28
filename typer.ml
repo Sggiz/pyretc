@@ -12,6 +12,8 @@ let raise_mess_terr s = raise (Message_terr s)
 exception Wrong_terr of typ * typ
 let wrong_type t1 t2 = raise (Wrong_terr(t1, t2))
 
+exception Var_not_def of string
+
 let rec head = function
     | Tvar { id = _; def = Some t } -> head t
     | t -> t
@@ -186,6 +188,10 @@ and w_expr e = function
     | False -> { t = Tbool; expr = TFalse }
     | Eint k -> { t = Tint; expr = TEint k }
     | Estring s -> { t = Tstr; expr = TEstring s }
+    | Eident id -> begin try
+        let schema = Smap.find id e.bindings in
+        { expr = TEident id; t = schema.typ }
+        with Not_found -> raise (Var_not_def id) end
     | _ -> raise_mess_terr "This expression type is not yet implemented"
 
 let w_file e f = let tb = w_block e f in { file = tb.block; t = tb.t }
