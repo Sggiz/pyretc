@@ -52,7 +52,7 @@ and tt_expr =
         * t_block option
     | TEcall of t_caller * t_bexpr list
     | TElam of t_funbody
-    | TEcases of t_bexpr * ublock * t_branch list
+    | TEcases of t_bexpr * ublock * tt_branch list
     | TEloop of t_caller * t_from list * ublock * t_block
 
 and t_caller = { caller : tt_caller; t : typ }
@@ -60,7 +60,6 @@ and tt_caller =
     | TCident of string
     | TCcall of t_caller * t_bexpr list
 
-and t_branch = { branch : tt_branch; t : typ }
 and tt_branch = string * string list option * t_block
 
 and t_from = string * t_bexpr

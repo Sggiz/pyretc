@@ -12,7 +12,7 @@ let pp_list sep pp fmt l = if l <> [] then begin
     List.iter (fprintf fmt "%s@ %a" sep pp) @@ List.tl l
     end
 
-let rec tp_typ fmt = function
+let rec tp_typ fmt t = match head t with
     | Tvar v -> fprintf fmt "V%d" v.id
     | Tany -> fprintf fmt "Any"
     | Tnoth -> fprintf fmt "Nothing"
@@ -25,6 +25,9 @@ let rec tp_typ fmt = function
 
 let rec tp_stmt fmt ts = match ts.stmt with
     | TSbexpr tb -> fprintf fmt "@[%a@]" tp_bexpr tb
+    | TSdef(bool, id, tbe) -> 
+        fprintf fmt "@[%s%s :: %a@]" (if bool then "var " else "") id
+            tp_typ tbe.t
     | _ -> fprintf fmt "typed statement"
 
 and tp_bexpr fmt tbe = match tbe.bexpr with

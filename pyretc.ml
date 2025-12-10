@@ -95,6 +95,13 @@ let () =
             eprintf "%s@." s;
             exit 1
 
+        | Typer.Wrong_terr(t1, t2) ->
+            eprintf "Erreur de type : cette expression a le type ";
+            eprintf "%a, mais devrait être de type %a.@."
+                Pretty_type_printer.tp_typ t1
+                Pretty_type_printer.tp_typ t2;
+            exit 1
+
         | Compile.VarUndef s ->
             eprintf "Erreur de compilation: la variable %s n'est pas définie@."
             s;
