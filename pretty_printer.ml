@@ -21,7 +21,7 @@ let rec pp_type fmt = function
     | Tannot(s, Some tl) ->
         fprintf fmt "%s<@[%a@]>" s (pp_list "," pp_type) tl
     | Tfun(tl, rt) ->
-        fprintf fmt "(@[%a@]@ -> @[%a@])"
+        fprintf fmt "(@[%a@] @[%a@])"
             (pp_list "," pp_type) tl
             pp_rtype rt
 

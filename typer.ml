@@ -19,6 +19,8 @@ exception Var_not_def of string
 exception Invalid_annot_terr of ty
 exception Redef_terr of string
 exception Shadow_terr of string
+exception BF_terr
+exception Case_terr
 
 let rec head = function
     | Tvar { id = _; def = Some t } -> head t
@@ -38,27 +40,6 @@ let rec occur tv t =
     | Tlist t' -> occur tv t'
     | Tfun(tl, t') -> List.exists (occur tv) tl || occur tv t'
     | _ -> false
-
-let rec unify t1 t2 =
-    match head t1, head t2 with
-    | Tany, Tany
-    | Tnoth, Tnoth
-    | Tbool, Tbool
-    | Tint, Tint
-    | Tstr, Tstr -> ()
-    | Tlist(t1'), Tlist(t2') -> unify t1' t2'
-    | Tfun(tla, ta), Tfun(tlb, tb) -> 
-        if List.length tla <> List.length tlb then
-            unification_error t1 t2
-        else List.iter2 unify tla tlb; unify ta tb
-    | Tvar v1 , Tvar v2  ->
-        if not @@ V.equal v1 v2 then unification_error t1 t2
-    | t, Tvar v
-    | Tvar v, t ->
-        if occur v t then unification_error t1 t2
-        else ( v.def <- Some t )
-    | _ -> unification_error t1 t2
-
 
 module Vset = Set.Make(V)
 
@@ -196,6 +177,12 @@ let rec eq_type_list = function
     | [] | [_] -> ()
     | t1 :: t2 :: q -> eq_type t1 t2; eq_type_list (t2 :: q)
 
+let rec bf e = function
+    | Tvar v -> if Vset.mem v e.fvars then raise BF_terr
+    | Tlist t -> bf e t
+    | Tfun(tl, t) -> List.iter (bf e) tl; bf e t
+    | _ -> ()
+
 let rec read_type = function
     | Tannot("Any", None) -> Tany
     | Tannot("Nothing", None) -> Tnoth
@@ -288,6 +275,17 @@ and w_expr e = function
             { expr = TEcall(tcaller, tbel); t = t }
         | _ -> raise (Not_a_fun_terr caller) end
 
+    | Elam (pl, (Rtype annot), ub, b) ->
+        let sl = List.map fst pl in
+        let stl = List.map 
+            (fun (id, annot) -> let t = read_type annot in bf e t; id, t) pl
+        in
+        let e' = List.fold_left (fun e (id, t) -> add id t false e) e stl in
+        let tb = w_block e' b in
+        let t = read_type annot in
+        sous_type tb.t t;
+        { expr = TElam(sl, ub, tb); t = Tfun(List.map snd stl, t) }
+
     | Ecases((Tannot("List",Some([t])) as lt), be, ub,
         [("empty", None, b1);("link", (Some [x;y]), b2)])
     | Ecases((Tannot("List",Some([t])) as lt), be, ub,
@@ -307,6 +305,7 @@ and w_expr e = function
         { expr = TEcases(tbe, ub,
             [("empty", None, tb1);("link", (Some [x;y]), tb2)]);
           t = tb1.t }
+    | Ecases _ -> raise Case_terr
 
     | _ -> raise_mess_terr "This expression type is not yet implemented"
 
