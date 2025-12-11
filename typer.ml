@@ -4,8 +4,6 @@
 open Ast
 open Typed_ast
 
-exception UnificationFailure of typ * typ
-
 exception Message_terr of string
 let raise_mess_terr s = raise (Message_terr s)
 
@@ -31,8 +29,6 @@ let rec canon t =
     | Tlist t -> Tlist(canon t)
     | Tfun(tl, t) -> Tfun(List.map canon tl, canon t)
     | t' -> t'
-
-let unification_error t1 t2 = raise (UnificationFailure (canon t1, canon t2))
 
 let rec occur tv t =
     match head t with
@@ -195,14 +191,18 @@ let rec bf e = function
     | Tfun(tl, t) -> List.iter (bf e) tl; bf e t
     | _ -> ()
 
-let rec read_type = function
+let rec read_type e = function
     | Tannot("Any", None) -> Tany
     | Tannot("Nothing", None) -> Tnoth
     | Tannot("Boolean", None) -> Tbool
     | Tannot("Number", None) -> Tint
     | Tannot("String", None) -> Tstr
-    | Tannot("List", Some([t])) -> Tlist (read_type t)
-    | Tfun(tyl, Rtype(t)) -> Tfun(List.map read_type tyl, read_type t)
+    | Tannot("List", Some([t])) -> Tlist (read_type e t)
+    | Tfun(tyl, Rtype(t)) -> Tfun(List.map (read_type e)tyl, read_type e t)
+    | Tannot(x, None) as t ->
+        begin try
+            Tvar(Smap.find x e.varmap)
+        with Not_found -> raise (Invalid_annot_terr t) end
     | _ as t -> raise (Invalid_annot_terr t)
 
 
@@ -215,19 +215,49 @@ let rec w_block e = function
 
 and w_stmt e = function
     | Sfun(f, targl, (paraml, rt, ub ,b)) ->
-(*
         let idl, annotl = List.split paraml in
         let new_env = List.fold_left add_var e targl in
-        List.iter bf annotl;
-*)
-        raise (Message_terr "Fonctions non implémentées")
+
+        let tl, t = begin
+            match read_type new_env (Tfun(annotl, rt)) with
+            | Tfun(tl, t) -> tl, t
+            | _ -> raise (Message_terr "Erreur de lecture de type d'une fonction.")
+        end in
+
+        List.iter (bf new_env) tl;
+
+        let sch = { 
+            vars = List.fold_left
+                (fun s id -> Vset.add (Smap.find id new_env.varmap) s)
+                Vset.empty targl;
+            typ = Tfun(tl, t);
+            is_var = false 
+        } in
+        let inner_env = List.fold_left 
+            (fun e (s,t) -> add s t false e)
+            new_env (List.combine idl tl)
+        in
+        let rec_env = {
+            bindings = Smap.add f sch inner_env.bindings;
+            fvars = inner_env.fvars;
+            varmap = inner_env.varmap
+        } in
+        let tb = w_block rec_env b in
+        sous_type tb.t t;
+        let next_env = {
+            bindings = Smap.add f sch e.bindings;
+            fvars = e.fvars;
+            varmap = e.varmap
+        } in
+        next_env, { stmt = TSfun(f, targl, (idl, ub, tb)); t = Tfun(tl, t) }
+
 
     | Sdef(b, id, tyo, be) ->
         if Smap.mem id e.bindings then raise (Shadow_terr id) else
         let tbe = w_bexpr e be in
         begin match tyo with 
             | None->()
-            | Some(t)-> sous_type tbe.t (read_type t)
+            | Some(t)-> sous_type tbe.t (read_type e t)
         end;
         begin if b then add id tbe.t true e else add_gen id tbe.t e end,
         { stmt = TSdef(b, id, tbe); t = tbe.t }
@@ -297,11 +327,11 @@ and w_expr e = function
     | Elam (pl, (Rtype annot), ub, b) ->
         let sl = List.map fst pl in
         let stl = List.map 
-            (fun (id, annot) -> let t = read_type annot in bf e t; id, t) pl
+            (fun (id, annot) -> let t = read_type e annot in bf e t; id, t) pl
         in
         let e' = List.fold_left (fun e (id, t) -> add id t false e) e stl in
         let tb = w_block e' b in
-        let t = read_type annot in
+        let t = read_type e annot in
         sous_type tb.t t;
         { expr = TElam(sl, ub, tb); t = Tfun(List.map snd stl, t) }
 
@@ -313,11 +343,11 @@ and w_expr e = function
         if Smap.mem x e.bindings then raise (Shadow_terr x) else
         if Smap.mem y e.bindings || x = y then raise (Shadow_terr y) else
 
-        let tbe = w_bexpr e be in sous_type tbe.t (read_type lt);
+        let tbe = w_bexpr e be in sous_type tbe.t (read_type e lt);
         let tb1 = w_block e b1  in
         let e' = e 
-            |> add x (read_type t) false
-            |> add y (read_type lt) false
+            |> add x (read_type e t) false
+            |> add y (read_type e lt) false
         in
         let tb2 = w_block e' b2 in
         eq_type tb1.t tb2.t;

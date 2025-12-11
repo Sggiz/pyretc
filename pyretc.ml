@@ -83,7 +83,7 @@ let () =
             exit 1
         | Lexer.BinopSpace_lerr ->
             ping_loc ();
-            eprintf "Un opérateur binaire doit être encadré d'espaces.";
+            eprintf "Un opérateur binaire doit être encadré d'espaces.@.";
             exit 1
 
         | Parser.Error ->
@@ -94,18 +94,42 @@ let () =
         | Typer.Message_terr s ->
             eprintf "%s@." s;
             exit 1
-
         | Typer.Wrong_terr(t1, t2) ->
             eprintf "Erreur de type : cette expression a le type ";
             eprintf "%a, mais devrait être de type %a.@."
                 Pretty_type_printer.tp_typ t1
                 Pretty_type_printer.tp_typ t2;
             exit 1
+        | Typer.Not_a_fun_terr c ->
+            eprintf "Erreur de type : %a n'est pas une fonction.@."
+                Pretty_printer.pp_caller c;
+            exit 1
+        | Typer.Arg_nb_terr c ->
+        eprintf "Erreur d'arité : %a n'a pas reçu le bon nombre d'arguments.@."
+                Pretty_printer.pp_caller c;
+            exit 1
+        | Typer.Var_not_def id ->
+            eprintf "La variable %s n'est pas définie.@." id;
+            exit 1
+        | Typer.Invalid_annot_terr ty ->
+            eprintf "L'annotation %a ne correspond pas à un type valide.@."
+                Pretty_printer.pp_type ty;
+            exit 1
+        | Typer.Redef_terr id ->
+            eprintf "La variable %s ne peut être redéfinie.@." id;
+            exit 1
+        | Typer.Shadow_terr id ->
+            eprintf "La variable %s a déjà été introduite et ne peut être écrasée.@." id;
+            exit 1
+        | Typer.BF_terr ->
+            eprintf "Type non bien formé.@.";
+            exit 1
+        | Typer.Case_terr ->
+            eprintf "Mauvaise utilisation de l'expression 'cases'.@.";
+            exit 1
 
         | Compile.VarUndef s ->
             eprintf "Erreur de compilation: la variable %s n'est pas définie@."
             s;
             exit 1
-
-        | _ -> eprintf "Erreur ???@."; exit 1
 

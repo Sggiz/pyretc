@@ -10,7 +10,7 @@ case $option in
             $(pwd)/test/test.arr;;
     * )
         cd $(pwd)/jcftest
-        sh script.sh $option ../_build/default/pyretc.exe;;
+        bash script.sh $option ../_build/default/pyretc.exe;;
 esac
 echo
 
