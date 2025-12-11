@@ -1,6 +1,10 @@
 
 (* Syntaxe abstraite pour le langage Pyret *)
 
+exception Block_perr
+exception Message_perr of string
+
+
 type file = stmt list
 
 and block = stmt list (* non vide *)

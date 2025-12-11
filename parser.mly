@@ -4,9 +4,6 @@
 %{
     open Ast
 
-    exception Block_perr
-    exception Message_perr of string
-
     let rec is_unique_binop = function
         | (b1,_)::((b2,_)::_ as q) -> b1 = b2 && is_unique_binop q
         | _ -> true

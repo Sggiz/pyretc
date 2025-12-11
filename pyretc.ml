@@ -86,10 +86,20 @@ let () =
             eprintf "Un opérateur binaire doit être encadré d'espaces.@.";
             exit 1
 
+
         | Parser.Error ->
             ping_loc ();
             eprintf "Erreur dans l'analyse syntaxique@.";
             exit 1
+        | Ast.Block_perr ->
+            ping_loc ();
+            eprintf "Erreur d'utilisation du block.@.";
+            exit 1
+        | Ast.Message_perr s ->
+            ping_loc ();
+            eprintf "%s@." s;
+            exit 1
+
 
         | Typer.Message_terr s ->
             eprintf "%s@." s;

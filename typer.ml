@@ -153,13 +153,18 @@ let sous_type t1 t2 =
             if (List.length tl1) <> (List.length tl2) then wrong_type t1 t2;
             let m' = verif m ta tb in
             List.fold_left2 verif m' tl2 tl1
+        | (Tvar v1 as ht1), Tvar v2 ->
+            if V.equal v1 v2 then m else begin
+            try let t = Vmap.find v2 m in verif m ht1 t
+            with Not_found -> Vmap.add v2 ht1 m
+        end
         | ht1, Tvar v2 -> begin
             try let t = Vmap.find v2 m in verif m ht1 t
-            with Not_found -> Vmap.add v2 t1 m
+            with Not_found -> Vmap.add v2 ht1 m
         end
         | Tvar v1, ht2 -> begin
             try let t = Vmap.find v1 m in verif m t ht2
-            with Not_found -> Vmap.add v1 t2 m
+            with Not_found -> Vmap.add v1 ht2 m
         end
         | _, _ -> check_type t1 t2; m
     in
