@@ -185,8 +185,9 @@ let rec eq_type_list = function
     | [] | [_] -> ()
     | t1 :: t2 :: q -> eq_type t1 t2; eq_type_list (t2 :: q)
 
-let rec bf e = function
-    | Tvar v -> if Vset.mem v e.fvars then raise BF_terr
+let rec bf e t =
+    match head t with
+    | Tvar v -> if not @@ Vset.mem v e.fvars then raise BF_terr
     | Tlist t -> bf e t
     | Tfun(tl, t) -> List.iter (bf e) tl; bf e t
     | _ -> ()
@@ -205,6 +206,8 @@ let rec read_type e = function
         with Not_found -> raise (Invalid_annot_terr t) end
     | _ as t -> raise (Invalid_annot_terr t)
 
+let ping () = Format.printf "ping@."
+let pingarg f a = Format.printf "ping : %a@." f a
 
 let rec w_block e = function
     | [] -> { block = []; t = Tnoth }

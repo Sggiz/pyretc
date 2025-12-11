@@ -1,6 +1,5 @@
 
 open Typed_ast
-open Typer
 open Format
 
 let binop_assoc = Ast.(
@@ -12,7 +11,8 @@ let pp_list sep pp fmt l = if l <> [] then begin
     List.iter (fprintf fmt "%s@ %a" sep pp) @@ List.tl l
     end
 
-let rec tp_typ fmt t = match head t with
+let rec tp_typ fmt t = match t with
+    | Tvar { id = _; def = Some t' } -> tp_typ fmt t'
     | Tvar v -> fprintf fmt "V%d" v.id
     | Tany -> fprintf fmt "Any"
     | Tnoth -> fprintf fmt "Nothing"
