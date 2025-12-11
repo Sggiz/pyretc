@@ -55,18 +55,20 @@ type schema = { vars : Vset.t; typ : typ; is_var : bool }
 
 module Smap = Map.Make(String)
 
-type env = { bindings : schema Smap.t; fvars : Vset.t }
+type env = { bindings : schema Smap.t; fvars : Vset.t; varmap : tvar Smap.t }
 
-let empty = { bindings = Smap.empty; fvars = Vset.empty }
+let empty = { bindings = Smap.empty; fvars = Vset.empty; varmap = Smap.empty }
 
 let update_fvars s =
     Vset.fold (fun v s -> Vset.union (fvars (Tvar v)) s) s Vset.empty
 
 let add s t is_var e =
     let new_vars = fvars t in
-    let new_schema = { vars = Vset.empty; typ = t; is_var = is_var } in {
+    let new_schema = { vars = Vset.empty; typ = t; is_var = is_var } in
+    {
         bindings = Smap.add s new_schema e.bindings;
-        fvars = Vset.union e.fvars new_vars
+        fvars = Vset.union e.fvars new_vars;
+        varmap = e.varmap
     }
 
 let add_gen s t e =
@@ -75,9 +77,19 @@ let add_gen s t e =
     let free_vars =
         Vset.filter (fun tv -> not @@ Vset.mem tv updated_env_fvars) new_vars
     in
-    let new_schema = { vars = free_vars; typ = t; is_var = false} in {
+    let new_schema = { vars = free_vars; typ = t; is_var = false} in
+    {
         bindings = Smap.add s new_schema e.bindings;
-        fvars = e.fvars
+        fvars = e.fvars;
+        varmap = e.varmap
+    }
+
+let add_var e s =
+    let newvar = V.create () in
+    {
+        bindings = e.bindings;
+        fvars = Vset.add newvar e.fvars;
+        varmap = Smap.add s newvar e.varmap
     }
 
 module Vmap = Map.Make(V)
@@ -202,6 +214,14 @@ let rec w_block e = function
         { block = ts::tb.block; t = tb.t }
 
 and w_stmt e = function
+    | Sfun(f, targl, (paraml, rt, ub ,b)) ->
+(*
+        let idl, annotl = List.split paraml in
+        let new_env = List.fold_left add_var e targl in
+        List.iter bf annotl;
+*)
+        raise (Message_terr "Fonctions non implémentées")
+
     | Sdef(b, id, tyo, be) ->
         if Smap.mem id e.bindings then raise (Shadow_terr id) else
         let tbe = w_bexpr e be in
@@ -223,7 +243,6 @@ and w_stmt e = function
         with Not_found -> raise (Var_not_def id) end
     | Sbexpr be -> let tbe = w_bexpr e be in
         e, { t = tbe.t; stmt = TSbexpr tbe }
-    | _ -> raise_mess_terr "This statement type is not yet implemented"
 
 and w_bexpr e = function
     | exp, [] -> let texp = w_expr e exp in
@@ -307,7 +326,12 @@ and w_expr e = function
           t = tb1.t }
     | Ecases _ -> raise Case_terr
 
-    | _ -> raise_mess_terr "This expression type is not yet implemented"
+    (* Désucrage de la boucle for *)
+    | Eloop(c, froml, rt, ub, b) ->
+        let paraml, bexpl = List.split froml in
+        let lam = Elam (paraml, rt, ub, b),[] in
+        let ecall = Ecall(c, lam :: bexpl) in
+        w_expr e ecall
 
 and w_caller e = function
     | Cident id -> let texp = w_expr e (Eident id) in
