@@ -197,39 +197,43 @@ let rec bf e t =
     | Tfun(tl, t) -> List.iter (bf e) tl; bf e t
     | _ -> ()
 
-let rec read_type e = function
+let rec read_type e t = match t.desc with
     | Tannot("Any", None) -> Tany
     | Tannot("Nothing", None) -> Tnoth
     | Tannot("Boolean", None) -> Tbool
     | Tannot("Number", None) -> Tint
     | Tannot("String", None) -> Tstr
     | Tannot("List", Some([t])) -> Tlist (read_type e t)
-    | Tfun(tyl, Rtype(t)) -> Tfun(List.map (read_type e)tyl, read_type e t)
-    | Tannot(x, None) as t ->
+    | Tfun(tyl, rt) -> 
+        let Rtype(t) = rt.desc in
+        Tfun(List.map (read_type e)tyl, read_type e t)
+    | Tannot(x, None) ->
         begin try
             Tvar(Smap.find x e.varmap)
         with Not_found -> raise (Invalid_annot_terr t) end
-    | _ as t -> raise (Invalid_annot_terr t)
+    | _ -> raise (Invalid_annot_terr t)
 
 let ping () = Format.printf "ping@."
 let pingarg f a = Format.printf "ping : %a@." f a
 
-let rec w_block e = function
+let rec w_block e b = match b.desc with
     | [] -> { block = []; t = Tnoth }
     | [s] -> let _, ts = w_stmt e s in
         { block = [ts]; t = ts.t }
-    | s::q -> let new_env, ts = w_stmt e s in let tb = w_block new_env q in
+    | s::q -> 
+        let new_env, ts = w_stmt e s in
+        let tb = w_block new_env { desc = q; loc = b.loc } in
         { block = ts::tb.block; t = tb.t }
 
-and w_stmt e = function
-    | Sfun(f, targl, (paraml, rt, ub ,b)) ->
-        let idl, annotl = List.split paraml in
+and w_stmt e s = match s.desc with
+    | Sfun(f, targl, fb) ->
+        let (paraml, rt, ub ,b) = fb.desc in
+        let idl, annotl = List.split (List.map peel paraml) in
         let new_env = List.fold_left add_var e targl in
 
         let tl, t = begin
-            match read_type new_env (Tfun(annotl, rt)) with
-            | Tfun(tl, t) -> tl, t
-            | _ -> raise (Message_terr "Erreur de lecture de type d'une fonction.")
+            List.map (read_type new_env) annotl,
+            read_type new_env (let Rtype(t') = rt.desc in t')
         end in
 
         List.iter (bf new_env) tl;
@@ -282,18 +286,20 @@ and w_stmt e = function
     | Sbexpr be -> let tbe = w_bexpr e be in
         e, { t = tbe.t; stmt = TSbexpr tbe }
 
-and w_bexpr e = function
+and w_bexpr e be = match be.desc with
     | exp, [] -> let texp = w_expr e exp in
         ({ bexpr = (texp, []); t = texp.t } : t_bexpr)
     | exp1, [bin, exp2] -> let texp1, texp2 = w_expr e exp1, w_expr e exp2 in
         { bexpr = (texp1, [bin, texp2]); t = check_binop texp1.t bin texp2.t }
     | exp1, (bin, exp2)::q ->
-        let {bexpr=(te2, l);t=t} = w_bexpr e (exp2, q) in
+        let {bexpr=(te2, l);t=t} = 
+            w_bexpr e { desc = (exp2, q); loc = be.loc}
+        in
         let texp1 = w_expr e exp1 in
         if bin <> Eq && bin <> Neq then check_type texp1.t te2.t;
         { bexpr = (texp1, (bin, te2)::l); t=t}
 
-and w_expr e = function
+and w_expr e exp = match exp.desc with
     | True -> { expr = TTrue; t = Tbool }
     | False -> { t = Tbool; expr = TFalse }
     | Eint k -> { t = Tint; expr = TEint k }
@@ -332,10 +338,14 @@ and w_expr e = function
             { expr = TEcall(tcaller, tbel); t = t }
         | _ -> raise (Not_a_fun_terr caller) end
 
-    | Elam (pl, (Rtype annot), ub, b) ->
-        let sl = List.map fst pl in
+    | Elam fb ->
+        let (pl, rt, ub, b) = fb.desc in
+        let Rtype annot = rt.desc in
+        let peeled_pl = List.map peel pl in
+        let sl = List.map fst peeled_pl in
         let stl = List.map 
-            (fun (id, annot) -> let t = read_type e annot in bf e t; id, t) pl
+            (fun (id, annot) -> let t = read_type e annot in bf e t; id, t)
+            peeled_pl
         in
         let e' = List.fold_left (fun e (id, t) -> add id t false e) e stl in
         let tb = w_block e' b in
@@ -343,10 +353,14 @@ and w_expr e = function
         sous_type tb.t t;
         { expr = TElam(sl, ub, tb); t = Tfun(List.map snd stl, t) }
 
-    | Ecases((Tannot("List",Some([t])) as lt), be, ub,
-        [("empty", None, b1);("link", (Some [x;y]), b2)])
-    | Ecases((Tannot("List",Some([t])) as lt), be, ub,
-        [("link",(Some [x;y]), b2);("empty",None,b1)]) ->
+    | Ecases(
+        { desc = Tannot("List",Some([t])); loc = _ } as lt, be, ub,
+        [{ desc = ("empty", None, b1); loc = _};
+         { desc = ("link", (Some [x;y]), b2); loc = _ }])
+    | Ecases(
+        { desc = Tannot("List",Some([t])); loc = _ } as lt, be, ub,
+        [{ desc = ("link", (Some [x;y]), b2); loc = _ };
+         { desc = ("empty", None, b1); loc = _}]) ->
 
         if Smap.mem x e.bindings then raise (Shadow_terr x) else
         if Smap.mem y e.bindings || x = y then raise (Shadow_terr y) else
@@ -366,18 +380,24 @@ and w_expr e = function
 
     (* Désucrage de la boucle for *)
     | Eloop(c, froml, rt, ub, b) ->
-        let paraml, bexpl = List.split froml in
-        let lam = Elam (paraml, rt, ub, b),[] in
-        let ecall = Ecall(c, lam :: bexpl) in
+        let paraml, bexpl = List.split (List.map peel froml) in
+        let lam = {
+            desc = {
+                desc = Elam { desc = (paraml, rt, ub, b); loc = exp.loc };
+                loc = exp.loc }, [];
+            loc = exp.loc
+        } in
+        let ecall = { desc = Ecall(c, lam :: bexpl); loc = exp.loc } in
         w_expr e ecall
 
-and w_caller e = function
-    | Cident id -> let texp = w_expr e (Eident id) in
+and w_caller e c = match c.desc with
+    | Cident id -> let texp = w_expr e { desc = Eident id; loc = c.loc } in
         begin match texp with
         | { expr = TEident s; t = t } -> 
             ({ caller = TCident s; t = t } : t_caller )
         | _ -> exit 2 end
-    | Ccall(caller, bel) -> let texp = w_expr e (Ecall(caller, bel)) in
+    | Ccall(caller, bel) ->
+        let texp = w_expr e { desc = Ecall(caller, bel); loc = c.loc } in
         begin match texp with
         | { expr = TEcall(c, b); t = t } -> { caller = TCcall(c, b); t = t }
         | _ -> exit 2 end

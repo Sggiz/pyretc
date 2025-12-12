@@ -13,9 +13,9 @@ let pp_list sep pp fmt l = if l <> [] then begin
 let pp_ident fmt id = fprintf fmt "%s" id
 
 let pp_ublock fmt ub = fprintf fmt "%s"
-    (match ub with Colon->":" |BlockColon->"block:")
+    (match ub.desc with Colon->":" |BlockColon->"block:")
 
-let rec pp_type fmt = function
+let rec pp_type fmt t = match t.desc with
     | Tannot(s, None) ->
         fprintf fmt "%s" s
     | Tannot(s, Some tl) ->
@@ -25,11 +25,11 @@ let rec pp_type fmt = function
             (pp_list "," pp_type) tl
             pp_rtype rt
 
-and pp_rtype fmt (Rtype t) =
+and pp_rtype fmt rt = let Rtype t = rt.desc in
     fprintf fmt "-> %a" pp_type t
 
 
-let rec pp_stmt fmt = function
+let rec pp_stmt fmt s = match s.desc with
     | Sfun(f, [], fb) ->
         fprintf fmt "fun %s%a" f pp_funbody fb
     | Sfun(f, idl, fb) ->
@@ -53,30 +53,30 @@ let rec pp_stmt fmt = function
     | Sbexpr b ->
         fprintf fmt "@[%a@]" pp_bexpr b
 
-and pp_funbody fmt (param_list, rt, ub, b) =
+and pp_funbody fmt fb = let (param_list, rt, ub, b) = fb.desc in
     fprintf fmt "(%a) %a %a@   @[<v>%a@]@ end"
         (pp_list "," pp_param) param_list
         pp_rtype rt
         pp_ublock ub
         pp_block b
 
-and pp_param fmt (id, t) =
+and pp_param fmt p = let (id, t) = p.desc in
     fprintf fmt "%s :: %a" id pp_type t
 
-and pp_block fmt sl =
+and pp_block fmt b = let sl = b.desc in
     pp_stmt fmt @@ List.hd sl;
     List.iter (fun s -> fprintf fmt "@ %a" pp_stmt s) @@ List.tl sl
 
-and pp_bexpr fmt = function
+and pp_bexpr fmt be = match be.desc with
     | e, [] -> 
         fprintf fmt "%a" pp_expr e
     | e, (b,e')::q -> 
         fprintf fmt "%a@ %s@ %a"
-            pp_bexpr (e, [])
+            pp_bexpr { desc = (e, []); loc = be.loc }
             (List.assoc b binop_assoc)
-            pp_bexpr (e', q)
+            pp_bexpr { desc = (e', q); loc = be.loc }
 
-and pp_expr fmt = function
+and pp_expr fmt e = match e.desc with
     | True -> fprintf fmt "true"
     | False -> fprintf fmt "false"
     | Eint n -> fprintf fmt "%d" n
@@ -127,14 +127,15 @@ and pp_expr fmt = function
             pp_ublock ub
             pp_block b
 
-and pp_from fmt (p, be) =
+and pp_from fmt f = let (p, be) = f.desc in
     fprintf fmt "%a from %a" pp_param p pp_bexpr be
 
-and pp_caller fmt = function
+and pp_caller fmt c = match c.desc with
     | Cident s -> fprintf fmt "%s" s
-    | Ccall(caller, bexp_list) -> pp_expr fmt (Ecall(caller, bexp_list))
+    | Ccall(caller, bexp_list) ->
+            pp_expr fmt { desc = Ecall(caller, bexp_list); loc = c.loc }
 
-and pp_branch fmt = function
+and pp_branch fmt b = match b.desc with
     | (id, None, b) -> fprintf fmt "| %s => @[<v>%a@]" id pp_block b
     | (id, Some(pl), b) ->
         fprintf fmt "| %s(@[%a@]) => @[<v>%a@]"
@@ -144,7 +145,7 @@ and pp_branch fmt = function
 let pp_file fmt f =
     fprintf fmt "file {@ %a}"
         (fun fmt f -> List.iteri (fun i ->
-            fprintf fmt "%d: @[<v>%a@]@ " i pp_stmt) f) f
+            fprintf fmt "%d: @[<v>%a@]@ " i pp_stmt) f) f.desc
 
 
 let print_file f = printf "@[<v>%a@]@." pp_file f

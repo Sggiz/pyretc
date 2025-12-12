@@ -8,17 +8,18 @@
         | (b1,_)::((b2,_)::_ as q) -> b1 = b2 && is_unique_binop q
         | _ -> true
 
-    let rec is_valid_block ub = function
-        | [Sbexpr _] | [Sredef(_, _)] -> true
-        | [] | [_] -> false
-        | (Sbexpr _)::q | (Sredef(_, _))::q ->
-            begin match ub with
-            | Colon -> false
-            | BlockColon -> is_valid_block ub q
-            end
-        | _::q -> is_valid_block ub q
+    let rec is_valid_block a_ub b =
+        let solid = a_ub = BlockColon in
+        let rec check = function
+            | [Sbexpr _] | [Sredef(_, _)] -> true
+            | [] | [_] -> false
+            | (Sbexpr _)::q | (Sredef(_, _))::q ->
+                if not solid then false else check q
+            | _::q -> check q
+        in
+        check (List.map peel b.desc)
 
-    let valid_blocks ub = List.for_all (is_valid_block ub)
+    let valid_blocks a_ub = List.for_all (is_valid_block a_ub)
 
 %}
 
@@ -48,15 +49,19 @@
 
 %%
 
-file:
+file: d = a_file { { desc = d; loc = $startpos, $endpos } };
+a_file:
 | sl = stmt* EOF   { sl }
 ;
 
-block:
+block: d = a_block { { desc = d; loc = $startpos, $endpos } };
+a_block:
 | sl = stmt*
-    { (sl : block) }
+    { sl }
+;
 
-stmt:
+stmt: d = a_stmt { { desc = d; loc = $startpos, $endpos } };
+a_stmt:
 | FUN id = CALL fb = funbody
     { Sfun(id, [], fb) }
 | FUN id = IDENT lang idl = separated_nonempty_list(COMMA, i = IDENT { i })
@@ -71,27 +76,32 @@ DEF b = bexpr
     { Sbexpr b }
 ;
 
-funbody:
+funbody: d = a_funbody { { desc = d; loc = $startpos, $endpos } };
+a_funbody:
 | pl = separated_list(COMMA, param) RP rt = rtype ub = ublock b = block END
-    { if not @@ is_valid_block ub b then raise Block_perr
-    else ((pl, rt, ub, b): funbody) }
+    { if not @@ is_valid_block ub.desc b then raise Block_perr
+    else (pl, rt, ub, b) }
 ;
 
-param:
+param: d = a_param { { desc = d; loc = $startpos, $endpos } };
+a_param:
 | id = IDENT DCOL t = typerule
-    { ((id, t): param) }
+    { (id, t) }
 ;
 
-rtype:
+rtype: d = a_rtype { { desc = d; loc = $startpos, $endpos } };
+a_rtype:
 | LARR ty = typerule
     { Rtype ty }
 ;
 
-ublock:
+ublock: d = a_ublock { { desc = d; loc = $startpos, $endpos } };
+a_ublock:
 | COL   { Colon }
 | BLOCK { BlockColon }
 
-typerule:
+typerule: d = a_typerule { { desc = d; loc = $startpos, $endpos } };
+a_typerule:
 | id = IDENT
 tlo = delimited(lang,
     separated_nonempty_list(COMMA, typerule), 
@@ -104,14 +114,16 @@ tlo = delimited(lang,
 %inline lang: LNEQ {} | LANG {};
 %inline rang: GNEQ {} | RANG {};
 
-bexpr:
+bexpr: d = a_bexpr { { desc = d; loc = $startpos, $endpos } };
+a_bexpr:
 | e = expr bel = list(b = binop e0 = expr { (b,e0) })
-    { if is_unique_binop bel then ((e, bel): bexpr)
+    { if is_unique_binop bel then (e, bel)
     else raise (Message_perr
     "Enchaînement ambigu des opérateurs, veuillez utiliser des paranthèses.") }
 ;
 
-expr: (* incomplet *)
+expr: d = a_expr { { desc = d; loc = $startpos, $endpos } };
+a_expr:
 | TRUE  { True }
 | FALSE { False }
 | n = INTEGER
@@ -139,7 +151,7 @@ END
         | None -> b :: List.map snd elif
         | Some bel -> b :: bel :: List.map snd elif
     in
-    if not @@valid_blocks ub bloc_list then raise Block_perr
+    if not @@valid_blocks ub.desc bloc_list then raise Block_perr
 
     else Econd(bex, ub, b, elif, elo) }
 
@@ -154,24 +166,28 @@ END
 
 | FOR c = caller fl = separated_list(COMMA, from) RP rt = rtype ub = ublock
 b = block END
-    { if not @@ is_valid_block ub b then raise Block_perr
+    { if not @@ is_valid_block ub.desc b then raise Block_perr
         else Eloop(c, fl, rt, ub, b) }
 ;
 
-from: p = param FROM be = bexpr { ((p, be): from) }
+from: d = a_from { { desc = d; loc = $startpos, $endpos } };
+a_from:
+|p = param FROM be = bexpr { (p, be) }
 
-caller:
+caller: d = a_caller { { desc = d; loc = $startpos, $endpos } };
+a_caller:
 |c = caller bel = separated_list(COMMA, bexpr) DP
     { Ccall(c, bel) }
 |id = CALL
     { Cident id }
 ;
 
-branch:
+branch: d = a_branch { { desc = d; loc = $startpos, $endpos } };
+a_branch:
 | BAR id = IDENT carr b = block
-    { ((id, None, b): branch) }
+    { (id, None, b) }
 | BAR id = CALL idl = separated_list(COMMA, p=IDENT{p}) RP carr b = block
-    { ((id, Some(idl), b): branch) }
+    { (id, Some(idl), b) }
 ;
 
 carr: CARR | GEQ {};
