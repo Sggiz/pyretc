@@ -4,21 +4,24 @@
 open Ast
 open Typed_ast
 
-exception Message_terr of string
-let raise_mess_terr s = raise (Message_terr s)
+type loc = Lexing.position * Lexing.position
 
-exception Wrong_terr of typ * typ
-let wrong_type t1 t2 = raise (Wrong_terr(t1, t2))
+exception Message_terr of loc * string
+let raise_mess_terr l s = raise (Message_terr(l, s))
+
+exception Wrong_alert of typ * typ
+exception Wrong_terr of loc * typ * typ * typ * typ
 
 exception Not_a_fun_terr of caller
 exception Arg_nb_terr of caller
 
-exception Var_not_def of string
+exception Var_not_def of loc * string
 exception Invalid_annot_terr of ty
-exception Redef_terr of string
-exception Shadow_terr of string
-exception BF_terr
-exception Case_terr
+exception Redef_terr of loc * string
+exception Shadow_terr of loc * string
+exception BF_alert
+exception BF_terr of ty
+exception Case_terr of expr
 
 let rec head = function
     | Tvar { id = _; def = Some t } -> head t
@@ -141,61 +144,94 @@ let init_env = empty
     |> add_gen "fold" ( let a, b = V.create (), V.create () in
 Tfun([Tfun([Tvar(a); Tvar(b)], Tvar(a)) ;Tvar(a) ; Tlist(Tvar(b))], Tvar(a)) )
 
-let check_type t1 t2 = if canon t1 <> canon t2 then wrong_type t1 t2
+let check_type t1 t2 = 
+    if canon t1 <> canon t2 then raise (Wrong_alert(t1, t2))
 
+let rec st_verif m t1 t2 = match head t1, head t2 with
+    | _, Tany -> m
+    | Tlist(ta), Tlist(tb) -> st_verif m ta tb
+    | Tfun(tl1, ta), Tfun(tl2, tb) ->
+        if (List.length tl1) <> (List.length tl2) then
+            raise (Wrong_alert(t1, t2));
+        let m' = st_verif m ta tb in
+        List.fold_left2 st_verif m' tl2 tl1
+    | Tvar v1 as ht1, Tvar v2 ->
+        if V.equal v1 v2 then m
+        else begin try
+            let t = Vmap.find v2 m in
+            st_verif m ht1 t
+        with Not_found -> Vmap.add v2 ht1 m end
+    | ht, Tvar v ->
+        begin try
+            let t = Vmap.find v m in
+            st_verif m ht t
+        with Not_found -> Vmap.add v ht m end
+    | Tvar v, ht ->
+        begin try
+            let t = Vmap.find v m in
+            st_verif m t ht
+        with Not_found -> Vmap.add v ht m end
+    | _ as t1, (_ as t2) -> check_type t1 t2; m
 
-let sous_type t1 t2 =
-    let rec verif m t1 t2 =
-        match head t1, head t2 with
-        | _, Tany -> m
-        | Tlist(ta), Tlist(tb) -> verif m ta tb
-        | Tfun(tl1, ta), Tfun(tl2, tb) ->
-            if (List.length tl1) <> (List.length tl2) then wrong_type t1 t2;
-            let m' = verif m ta tb in
-            List.fold_left2 verif m' tl2 tl1
-        | (Tvar v1 as ht1), Tvar v2 ->
-            if V.equal v1 v2 then m else begin
-            try let t = Vmap.find v2 m in verif m ht1 t
-            with Not_found -> Vmap.add v2 ht1 m
-        end
-        | ht1, Tvar v2 -> begin
-            try let t = Vmap.find v2 m in verif m ht1 t
-            with Not_found -> Vmap.add v2 ht1 m
-        end
-        | Tvar v1, ht2 -> begin
-            try let t = Vmap.find v1 m in verif m t ht2
-            with Not_found -> Vmap.add v1 ht2 m
-        end
-        | _, _ -> check_type t1 t2; m
-    in
-    let m = verif Vmap.empty t1 t2 in
+let try_sous_type loc t1 t2 = 
+    try
+        st_verif Vmap.empty t1 t2
+    with Wrong_alert(unif_t1, unif_t2) ->
+        raise (Wrong_terr(loc, t1, t2, unif_t1, unif_t2))
+
+let lock_bindings m =
     let f (var, t) = var.def <- Some t in
     List.iter f (Vmap.bindings m)
 
-let check_binop t1 bin t2 = match bin with
-    | Add -> begin match t1, t2 with
-        | Tint, t | t, Tint -> sous_type t Tint; Tint
-        | Tstr, t | t, Tstr -> sous_type t Tstr; Tstr
-        | _ -> wrong_type t1 Tint end
-    | Sub | Mul | Div -> sous_type t1 Tint; sous_type t2 Tstr; Tstr
-    | Eq | Neq -> Tbool
-    | Lneq | Leq | Gneq | Geq ->
-        sous_type t1 Tint; sous_type t2 Tint; Tbool
-    | And | Or ->
-        sous_type t1 Tbool; sous_type t2 Tbool; Tbool
+let sous_type loc t1 t2 =
+    let m = try_sous_type loc t1 t2 in
+    lock_bindings m
 
-let eq_type t1 t2 = sous_type t1 t2; sous_type t2 t1
+let sous_type_list loc_typ_list t =
+    let ml = 
+        List.map (fun (loc, typ) -> try_sous_type loc typ t) loc_typ_list
+    in
+    List.iter lock_bindings ml
+
+
+let eq_type t1 t2 = 
+    ignore @@ st_verif Vmap.empty t1 t2;
+    ignore @@ st_verif Vmap.empty t2 t1
 
 let rec eq_type_list = function
     | [] | [_] -> ()
     | t1 :: t2 :: q -> eq_type t1 t2; eq_type_list (t2 :: q)
 
+
+let check_binop loc_typ_list = function
+    | Add ->
+        let is_clue (_, t) = match t with |Tint|Tstr-> true |_-> false in
+        begin try
+            let _, t = List.find is_clue loc_typ_list in
+            sous_type_list loc_typ_list t;
+            t
+        with Not_found ->
+            begin try
+                sous_type_list loc_typ_list Tstr; Tstr
+            with Wrong_terr _ ->
+                sous_type_list loc_typ_list Tint; Tint
+        end end
+    | Sub | Mul | Div -> sous_type_list loc_typ_list Tint; Tint
+    | Eq | Neq -> Tbool
+    | Lneq | Leq | Gneq | Geq -> sous_type_list loc_typ_list Tint; Tbool
+    | And | Or -> sous_type_list loc_typ_list Tbool; Tbool
+
+
 let rec bf e t =
     match head t with
-    | Tvar v -> if not @@ Vset.mem v e.fvars then raise BF_terr
+    | Tvar v -> if not @@ Vset.mem v e.fvars then raise BF_alert
     | Tlist t -> bf e t
     | Tfun(tl, t) -> List.iter (bf e) tl; bf e t
     | _ -> ()
+
+let check_bf e (annot, t) =
+    try bf e t with BF_alert ->
+    raise (BF_terr annot)
 
 let rec read_type e t = match t.desc with
     | Tannot("Any", None) -> Tany
@@ -236,7 +272,7 @@ and w_stmt e s = match s.desc with
             read_type new_env (let Rtype(t') = rt.desc in t')
         end in
 
-        List.iter (bf new_env) tl;
+        List.iter (check_bf new_env) (List.combine annotl tl);
 
         let sch = { 
             vars = List.fold_left
@@ -255,7 +291,7 @@ and w_stmt e s = match s.desc with
             varmap = inner_env.varmap
         } in
         let tb = w_block rec_env b in
-        sous_type tb.t t;
+        sous_type b.loc tb.t t;
         let next_env = {
             bindings = Smap.add f sch e.bindings;
             fvars = e.fvars;
@@ -265,11 +301,11 @@ and w_stmt e s = match s.desc with
 
 
     | Sdef(b, id, tyo, be) ->
-        if Smap.mem id e.bindings then raise (Shadow_terr id) else
+        if Smap.mem id e.bindings then raise (Shadow_terr(s.loc, id)) else
         let tbe = w_bexpr e be in
         begin match tyo with 
             | None->()
-            | Some(t)-> sous_type tbe.t (read_type e t)
+            | Some(t)-> sous_type be.loc tbe.t (read_type e t)
         end;
         begin if b then add id tbe.t true e else add_gen id tbe.t e end,
         { stmt = TSdef(b, id, tbe); t = tbe.t }
@@ -277,27 +313,29 @@ and w_stmt e s = match s.desc with
         begin try
             let sch = Smap.find id e.bindings in
             if not sch.is_var then
-                raise (Redef_terr id)
+                raise (Redef_terr(s.loc,id))
             else let t = find id e in
             let tbe = w_bexpr e be in
-            sous_type tbe.t t;
+            sous_type be.loc tbe.t t;
             e, { stmt = TSredef(id, tbe); t = Tnoth }
-        with Not_found -> raise (Var_not_def id) end
+        with Not_found -> raise (Var_not_def(s.loc, id)) end
     | Sbexpr be -> let tbe = w_bexpr e be in
         e, { t = tbe.t; stmt = TSbexpr tbe }
 
 and w_bexpr e be = match be.desc with
     | exp, [] -> let texp = w_expr e exp in
         ({ bexpr = (texp, []); t = texp.t } : t_bexpr)
-    | exp1, [bin, exp2] -> let texp1, texp2 = w_expr e exp1, w_expr e exp2 in
-        { bexpr = (texp1, [bin, texp2]); t = check_binop texp1.t bin texp2.t }
-    | exp1, (bin, exp2)::q ->
-        let {bexpr=(te2, l);t=t} = 
-            w_bexpr e { desc = (exp2, q); loc = be.loc}
+   | exp1, (bin, exp2)::q ->
+        let expl = exp2 :: List.map snd q in
+        let locl = exp1.loc :: List.map (fun exp -> exp.loc) expl in
+        let texp1, texpl =
+            w_expr e exp1, List.map (w_expr e) expl
         in
-        let texp1 = w_expr e exp1 in
-        if bin <> Eq && bin <> Neq then check_type texp1.t te2.t;
-        { bexpr = (texp1, (bin, te2)::l); t=t}
+        let tl = texp1.t :: List.map (fun (texp: t_expr) -> texp.t) texpl in
+        let t = check_binop (List.combine locl tl) bin in
+
+        let tbe = texp1, List.map (fun texp -> (bin, texp)) texpl in
+        { bexpr = tbe; t = t }
 
 and w_expr e exp = match exp.desc with
     | True -> { expr = TTrue; t = Tbool }
@@ -307,7 +345,7 @@ and w_expr e exp = match exp.desc with
     | Eident id -> begin try
         let t = find id e in
         { expr = TEident id; t = t }
-        with Not_found -> raise (Var_not_def id) end
+        with Not_found -> raise (Var_not_def(exp.loc,id)) end
 
     | Ebexpr be -> let tbe = w_bexpr e be in
         { t = tbe.t; expr = TEbexpr tbe }
@@ -324,8 +362,12 @@ and w_expr e exp = match exp.desc with
         List.iter (fun ((tbe : t_bexpr), _) -> check_type tbe.t Tbool) tbebl;
         let tl = tb.t :: List.map (fun (_,(tb : t_block)) -> tb.t) tbebl in
         let tl' = (try (Option.get tbo).t ::tl with Invalid_argument _-> tl) in
-        eq_type_list tl';
-        { expr = TEcond(tbe, ub, tb, tbebl, tbo); t = tb.t }
+        begin try
+            eq_type_list tl';
+            { expr = TEcond(tbe, ub, tb, tbebl, tbo); t = tb.t }
+        with Wrong_alert _ -> raise_mess_terr exp.loc
+            "Toutes les branches conditionnelles doivent avoir le même type."
+        end
 
     | Ecall(caller, bel) -> begin
         let tcaller = w_caller e caller in
@@ -334,7 +376,8 @@ and w_expr e exp = match exp.desc with
         | Tfun(tl, t) ->
             if List.length tl <> List.length tbel then
                 raise (Arg_nb_terr caller)
-            else List.iter2 (fun (tbe:t_bexpr) t -> sous_type tbe.t t) tbel tl;
+            else List.iter2
+                (fun (tbe:t_bexpr) t -> sous_type caller.loc tbe.t t) tbel tl;
             { expr = TEcall(tcaller, tbel); t = t }
         | _ -> raise (Not_a_fun_terr caller) end
 
@@ -350,22 +393,22 @@ and w_expr e exp = match exp.desc with
         let e' = List.fold_left (fun e (id, t) -> add id t false e) e stl in
         let tb = w_block e' b in
         let t = read_type e annot in
-        sous_type tb.t t;
+        sous_type b.loc tb.t t;
         { expr = TElam(sl, ub, tb); t = Tfun(List.map snd stl, t) }
 
     | Ecases(
         { desc = Tannot("List",Some([t])); loc = _ } as lt, be, ub,
-        [{ desc = ("empty", None, b1); loc = _};
-         { desc = ("link", (Some [x;y]), b2); loc = _ }])
+        [{ desc = ("empty", None, b1); loc = _ };
+         { desc = ("link", (Some [x;y]), b2); loc = loc2 }])
     | Ecases(
         { desc = Tannot("List",Some([t])); loc = _ } as lt, be, ub,
-        [{ desc = ("link", (Some [x;y]), b2); loc = _ };
-         { desc = ("empty", None, b1); loc = _}]) ->
+        [{ desc = ("link", (Some [x;y]), b2); loc = loc2 };
+         { desc = ("empty", None, b1); loc = _ }]) ->
 
-        if Smap.mem x e.bindings then raise (Shadow_terr x) else
-        if Smap.mem y e.bindings || x = y then raise (Shadow_terr y) else
+        if Smap.mem x e.bindings then raise (Shadow_terr(loc2, x)) else
+        if Smap.mem y e.bindings || x = y then raise (Shadow_terr(loc2,y)) else
 
-        let tbe = w_bexpr e be in sous_type tbe.t (read_type e lt);
+        let tbe = w_bexpr e be in sous_type be.loc tbe.t (read_type e lt);
         let tb1 = w_block e b1  in
         let e' = e 
             |> add x (read_type e t) false
@@ -376,7 +419,7 @@ and w_expr e exp = match exp.desc with
         { expr = TEcases(tbe, ub,
             [("empty", None, tb1);("link", (Some [x;y]), tb2)]);
           t = tb1.t }
-    | Ecases _ -> raise Case_terr
+    | Ecases _ -> raise (Case_terr exp)
 
     (* Désucrage de la boucle for *)
     | Eloop(c, froml, rt, ub, b) ->
