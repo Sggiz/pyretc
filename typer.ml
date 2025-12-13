@@ -90,8 +90,8 @@ let add_gen s t e =
         varmap = e.varmap
     }
 
-let add_var e s =
-    let newvar = V.create () in
+let add_selfdef e s =
+    let newvar = V.create true in
     {
         bindings = e.bindings;
         fvars = Vset.add newvar e.fvars;
@@ -109,7 +109,7 @@ let find s e =
             if Vset.mem var schema.vars then
             let new_var = (
                 try Vmap.find var vmap
-                with Not_found -> V.create ()
+                with Not_found -> V.create false
             ) in
             Vmap.add var new_var vmap, Tvar(new_var)
             else vmap, Tvar(var)
@@ -149,8 +149,14 @@ let rec rec_unify t1 t2 = match head t1, head t2 with
     | Tfun(tla, ta), Tfun(tlb, tb) ->
         List.iter2 rec_unify tla tlb; rec_unify ta tb
     | Tvar v1, Tvar v2 ->
-        if not @@ V.equal v1 v2 then v1.def <- Some (Tvar v1)
-    | t, Tvar v | Tvar v, t -> v.def <- Some t
+        if V.equal v1 v2 then ()
+        else if v1.is_selfdef && v2.is_selfdef then
+            raise (Unification_alert(head t1, head t2))
+        else if v1.is_selfdef then v2.def <- Some (Tvar v1)
+        else v1.def <- Some (Tvar v2)
+    | t, Tvar v | Tvar v, t ->
+        if v.is_selfdef then raise (Unification_alert(t, Tvar v))
+        else v.def <- Some t
     | ta, tb -> raise (Unification_alert(ta, tb))
 
 
@@ -169,23 +175,43 @@ let rec st_verif m t1 t2 = match head t1, head t2 with
             raise (ST_alert(t1, t2));
         let m' = st_verif m ta tb in
         List.fold_left2 st_verif m' tl2 tl1
-    | Tvar v1 as ht1, Tvar v2 ->
+    | Tvar v1, Tvar v2 ->
         if V.equal v1 v2 then m
+        else if Vmap.mem v1 m then st_verif m (Vmap.find v1 m) (Tvar v2)
+        else if Vmap.mem v2 m then st_verif m (Tvar v1) (Vmap.find v2 m)
+        else if v1.is_selfdef && v2.is_selfdef then
+            raise (ST_alert(Tvar v1, Tvar v2))
+        else if v1.is_selfdef then Vmap.add v2 (Tvar v1) m
+        else Vmap.add v1 (Tvar v2) m
+(*
         else begin try
             let t = Vmap.find v2 m in
             st_verif m ht1 t
         with Not_found -> Vmap.add v2 ht1 m end
+*)
     | ht, Tvar v ->
+        if Vmap.mem v m then st_verif m ht (Vmap.find v m)
+        else if v.is_selfdef then
+            raise (ST_alert(ht, Tvar v))
+        else Vmap.add v ht m
+(*
         begin try
             let t = Vmap.find v m in
             st_verif m ht t
         with Not_found -> Vmap.add v ht m end
+*)
     | Tvar v, ht ->
+        if Vmap.mem v m then st_verif m (Vmap.find v m) ht
+        else if v.is_selfdef then
+            raise (ST_alert(Tvar v, ht))
+        else Vmap.add v ht m
+(*
         begin try
             let t = Vmap.find v m in
             st_verif m t ht
         with Not_found -> Vmap.add v ht m end
-    | _ as t1, (_ as t2) ->
+*)
+    | t1, t2 ->
         raise (ST_alert(t1, t2))
 
 let try_sous_type loc t1 t2 = 
@@ -209,13 +235,14 @@ let sous_type_list loc_typ_list t =
     List.iter lock_bindings ml
 
 
-let eq_type t1 t2 = 
-    ignore @@ st_verif Vmap.empty t1 t2;
-    ignore @@ st_verif Vmap.empty t2 t1
+let eq_type loc1 t1 loc2 t2 = 
+    sous_type loc1 t1 t2;
+    sous_type loc2 t2 t1
 
 let rec eq_type_list = function
     | [] | [_] -> ()
-    | t1 :: t2 :: q -> eq_type t1 t2; eq_type_list (t2 :: q)
+    | (loc1, t1) :: (loc2, t2) :: q ->
+        eq_type loc1 t1 loc2 t2; eq_type_list ((loc2, t2) :: q)
 
 
 let check_binop loc_typ_list = function
@@ -264,21 +291,27 @@ let rec read_type e t = match t.desc with
         with Not_found -> raise (Invalid_annot_terr t) end
     | _ -> raise (Invalid_annot_terr t)
 
+let check_valid_selfdef e loc s = match s with
+    | "Any" | "Nothing" | "Boolean" | "Number" | "String" | "List" ->
+        raise (Shadow_terr(loc, s))
+    | _ -> if Smap.mem s e.varmap then raise (Shadow_terr(loc, s))
+
+
 (* Algo W construisant l'AST typé *)
 
 let init_env = empty
     |> add_gen "nothing" Tnoth
     |> add_gen "num-modulo" (Tfun([Tint; Tint], Tint))
-    |> add_gen "empty" (Tlist(Tvar(V.create ())))
-    |> add_gen "link" ( let v = V.create () in 
+    |> add_gen "empty" (Tlist(Tvar(V.create true)))
+    |> add_gen "link" ( let v = V.create true in 
         Tfun([Tvar(v); Tlist(Tvar(v))], Tlist(Tvar(v))) )
-    |> add_gen "print" ( let v = V.create () in
+    |> add_gen "print" ( let v = V.create true in
         Tfun([Tvar(v)], Tvar(v)) )
-    |> add_gen "raise" ( let v = V.create () in
+    |> add_gen "raise" ( let v = V.create true in
         Tfun([Tstr], Tvar(v)) )
-    |> add_gen "each" (let a, b = V.create (), V.create () in
+    |> add_gen "each" (let a, b = V.create true, V.create true in
         Tfun([Tfun([Tvar(a)], Tvar(b)); Tlist(Tvar(a)) ], Tnoth) )
-    |> add_gen "fold" ( let a, b = V.create (), V.create () in
+    |> add_gen "fold" ( let a, b = V.create true, V.create true in
 Tfun([Tfun([Tvar(a); Tvar(b)], Tvar(a)) ;Tvar(a) ; Tlist(Tvar(b))], Tvar(a)) )
 
 let ping () = Format.printf "ping@."
@@ -297,7 +330,7 @@ and w_stmt e s = match s.desc with
     | Sfun(f, targl, fb) ->
         let (paraml, rt, ub ,b) = fb.desc in
         let idl, annotl = List.split (List.map peel paraml) in
-        let new_env = List.fold_left add_var e targl in
+        let new_env = List.fold_left add_selfdef e targl in
 
         let tl, t = begin
             List.map (read_type new_env) annotl,
@@ -306,7 +339,13 @@ and w_stmt e s = match s.desc with
 
         List.iter (check_bf new_env) (List.combine annotl tl);
 
-        let sch = { 
+        if Smap.mem f e.bindings then raise (Shadow_terr(s.loc, f));
+        List.iter (check_valid_selfdef e s.loc) targl;
+        List.iter (fun p -> let id = fst p.desc in
+            if Smap.mem (fst p.desc) e.bindings then
+            raise (Shadow_terr(p.loc, id))) paraml;
+
+        let sch = {
             vars = List.fold_left
                 (fun s id -> Vset.add (Smap.find id new_env.varmap) s)
                 Vset.empty targl;
@@ -398,8 +437,12 @@ and w_expr e exp = match exp.desc with
             bel tbel;
         let tl = tb.t :: List.map (fun (tb : t_block) -> tb.t) tbl in
         let tl' = (try (Option.get tbo).t ::tl with Invalid_argument _-> tl) in
+        let locl = b.loc :: List.map (fun b -> b.loc) bl in
+        let locl' = 
+            (try (Option.get bo).loc :: locl with Invalid_argument _ -> locl)
+        in
         begin try
-            eq_type_list tl';
+            eq_type_list (List.combine locl' tl');
             { expr = TEcond(tbe, ub, tb, List.combine tbel tbl, tbo); t=tb.t }
         with ST_alert _ -> raise_mess_terr exp.loc
             "Toutes les branches conditionnelles doivent avoir le même type."
@@ -415,7 +458,8 @@ and w_expr e exp = match exp.desc with
             else List.iter2
                 (fun (tbe:t_bexpr) t -> sous_type caller.loc tbe.t t) tbel tl;
             { expr = TEcall(tcaller, tbel); t = t }
-        | _ -> raise (Not_a_fun_terr caller) end
+        | _ -> raise (Not_a_fun_terr caller)
+        end
 
     | Elam fb ->
         let (pl, rt, ub, b) = fb.desc in
@@ -442,16 +486,16 @@ and w_expr e exp = match exp.desc with
          { desc = ("empty", None, b1); loc = _ }]) ->
 
         if Smap.mem x e.bindings then raise (Shadow_terr(loc2, x)) else
-        if Smap.mem y e.bindings || x = y then raise (Shadow_terr(loc2,y)) else
+        if Smap.mem y e.bindings || (x = y && x <> "_") then
+            raise (Shadow_terr(loc2,y)) else
 
         let tbe = w_bexpr e be in sous_type be.loc tbe.t (read_type e lt);
         let tb1 = w_block e b1  in
-        let e' = e 
-            |> add x (read_type e t) false
-            |> add y (read_type e lt) false
-        in
+
+        let e_x = if x = "_" then e else add x (read_type e t) false e in
+        let e' = if y = "_" then e_x else add y (read_type e_x lt) false e_x in
         let tb2 = w_block e' b2 in
-        eq_type tb1.t tb2.t;
+        eq_type b1.loc tb1.t b2.loc tb2.t;
         { expr = TEcases(tbe, ub,
             [("empty", None, tb1);("link", (Some [x;y]), tb2)]);
           t = tb1.t }

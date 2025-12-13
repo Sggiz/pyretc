@@ -13,13 +13,15 @@ type typ =
 
 and tvar =
     { id : int;
-      mutable def : typ option }
+      mutable def : typ option;
+      is_selfdef : bool }
 
 module V = struct
     type t = tvar
     let compare v1 v2 = Stdlib.compare v1.id v2.id
     let equal v1 v2 = v1.id = v2.id
-    let create = let r = ref 0 in fun () -> incr r; {id = !r; def = None}
+    let create = let r = ref 0 in fun b ->
+        incr r; { id = !r; def = None; is_selfdef = b }
 end
 
 (* Ast augmenté avec les types *)

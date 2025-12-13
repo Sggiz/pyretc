@@ -32,6 +32,16 @@ let localisation pos =
     let c = pos.pos_cnum - pos.pos_bol + 1 in
     eprintf "File \"%s\", line %d, characters %d-%d:\n" !ifile l (c-1) c
 
+let localisation2 (p1, p2) =
+    let l1, l2 = p1.pos_lnum, p2.pos_lnum in
+    if l1 = l2 then
+        let c1 = p1.pos_cnum - p1.pos_bol + 1 in
+        let c2 = p2.pos_cnum - p2.pos_bol + 1 in
+        eprintf "File \"%s\", line %d, characters %d-%d:\n" !ifile l1 (c1-1) c2
+    else
+        eprintf "File \"%s\", lines %d-%d:\n" !ifile l1 l2
+
+
 let () =
     (* Parsing de la ligne de commande *)
     Arg.parse options (set_file ifile) usage;
@@ -102,69 +112,68 @@ let () =
 
 
         | Typer.Message_terr(loc, s) ->
-            localisation (fst loc);
+            localisation2 loc;
             eprintf "%s@." s;
             exit 1
         | Typer.Unification_terr(loc, t1, t2, ut1, ut2) -> Pretty_type_printer.(
-            localisation (fst loc);
-            eprintf "Erreur de type : Unification\n
-            Cette expression a le type %a, mais devrait être de type %a.\n"
-                tp_typ t1 tp_typ t2;
+            localisation2 loc;
+            eprintf "Erreur de type : Unification\n";
+            eprintf "Cette expression a le type %a, " tp_typ t1;
+            eprintf "mais devrait être de type %a.\n" tp_typ t2;
             eprintf "(Erreur d'unification sur %a et %a)@."
                 tp_typ ut1 tp_typ ut2;
             exit 1)
         | Typer.ST_terr(loc, t1, t2, ut1, ut2) -> Pretty_type_printer.(
-            localisation (fst loc);
-            eprintf "Erreur de type : Sous-typage\n
-            Cette expression a le type %a, mais devrait être un sous-type
-            de %a.\n"
-                tp_typ t1 tp_typ t2;
+            localisation2 loc;
+            eprintf "Erreur de type : Sous-typage\n";
+            eprintf "Cette expression a le type %a, " tp_typ t1;
+            eprintf "mais devrait être un sous-type de %a.\n" tp_typ t2;
             eprintf "(Erreur de sous-typage sur %a et %a)@."
                 tp_typ ut1 tp_typ ut2;
             exit 1)
         | Typer.Wrong_type_terr(loc, t1, t2) -> Pretty_type_printer.(
-            localisation (fst loc);
-            eprintf "Erreur de type :\n
-            Cette expression a le type %a, mais devrait être de type %a."
-                tp_typ t1 tp_typ t2;
+            localisation2 loc;
+            eprintf "Erreur de type :\n";
+            eprintf "Cette expression a le type %a, " tp_typ t1;
+            eprintf "mais devrait être de type %a." tp_typ t2;
             exit 1)
         | Typer.Not_a_fun_terr c ->
-            localisation (fst c.loc);
+            localisation2 c.loc;
             eprintf "Erreur de type : %a n'est pas une fonction.@."
                 Pretty_printer.pp_caller c;
             exit 1
         | Typer.Arg_nb_terr c ->
-            localisation (fst c.loc);
+            localisation2 c.loc;
             eprintf
                 "Erreur d'arité : %a n'a pas reçu le bon nombre d'arguments.@."
                 Pretty_printer.pp_caller c;
             exit 1
         | Typer.Var_not_def(loc, id) ->
-            localisation (fst loc);
+            localisation2 loc;
             eprintf "La variable %s n'est pas définie.@." id;
             exit 1
         | Typer.Invalid_annot_terr ty ->
-            localisation (fst ty.loc);
+            localisation2 ty.loc;
             eprintf "L'annotation %a ne correspond pas à un type valide.@."
                 Pretty_printer.pp_type ty;
             exit 1
         | Typer.Redef_terr(loc, id) ->
-            localisation (fst loc);
+            localisation2 loc;
             eprintf "La variable %s ne peut être redéfinie.@." id;
             exit 1
         | Typer.Shadow_terr(loc, id) ->
-            localisation (fst loc);
+            localisation2 loc;
             eprintf
             "La variable %s a déjà été introduite et ne peut être écrasée.@."
                 id;
             exit 1
         | Typer.BF_terr annot ->
-            localisation (fst annot.loc);
+            localisation2 annot.loc;
             eprintf "Le type annoté %a n'est pas bien formé.@."
                 Pretty_printer.pp_type annot;
             exit 1
         | Typer.Case_terr exp ->
-            localisation (fst exp.loc);
+            localisation2 exp.loc;
             eprintf "Mauvaise utilisation de l'expression 'cases'.@.";
             exit 1
 
