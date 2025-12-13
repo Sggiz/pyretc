@@ -105,13 +105,28 @@ let () =
             localisation (fst loc);
             eprintf "%s@." s;
             exit 1
-        | Typer.Wrong_terr(loc, t1, t2, ut1, ut2) -> Pretty_type_printer.(
+        | Typer.Unification_terr(loc, t1, t2, ut1, ut2) -> Pretty_type_printer.(
             localisation (fst loc);
-            eprintf "Erreur de type : cette expression a le type ";
-            eprintf "%a, mais devrait être de type %a.\n"
+            eprintf "Erreur de type : Unification\n
+            Cette expression a le type %a, mais devrait être de type %a.\n"
                 tp_typ t1 tp_typ t2;
             eprintf "(Erreur d'unification sur %a et %a)@."
                 tp_typ ut1 tp_typ ut2;
+            exit 1)
+        | Typer.ST_terr(loc, t1, t2, ut1, ut2) -> Pretty_type_printer.(
+            localisation (fst loc);
+            eprintf "Erreur de type : Sous-typage\n
+            Cette expression a le type %a, mais devrait être un sous-type
+            de %a.\n"
+                tp_typ t1 tp_typ t2;
+            eprintf "(Erreur de sous-typage sur %a et %a)@."
+                tp_typ ut1 tp_typ ut2;
+            exit 1)
+        | Typer.Wrong_type_terr(loc, t1, t2) -> Pretty_type_printer.(
+            localisation (fst loc);
+            eprintf "Erreur de type :\n
+            Cette expression a le type %a, mais devrait être de type %a."
+                tp_typ t1 tp_typ t2;
             exit 1)
         | Typer.Not_a_fun_terr c ->
             localisation (fst c.loc);
@@ -152,6 +167,7 @@ let () =
             localisation (fst exp.loc);
             eprintf "Mauvaise utilisation de l'expression 'cases'.@.";
             exit 1
+
 
         | Compile.VarUndef s ->
             eprintf "Erreur de compilation: la variable %s n'est pas définie@."

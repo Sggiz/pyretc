@@ -9,8 +9,13 @@ type loc = Lexing.position * Lexing.position
 exception Message_terr of loc * string
 let raise_mess_terr l s = raise (Message_terr(l, s))
 
-exception Wrong_alert of typ * typ
-exception Wrong_terr of loc * typ * typ * typ * typ
+exception Unification_alert of typ * typ
+exception Unification_terr of loc * typ * typ * typ * typ
+
+exception ST_alert of typ * typ
+exception ST_terr of loc * typ * typ * typ * typ
+
+exception Wrong_type_terr of loc * typ * typ
 
 exception Not_a_fun_terr of caller
 exception Arg_nb_terr of caller
@@ -19,8 +24,10 @@ exception Var_not_def of loc * string
 exception Invalid_annot_terr of ty
 exception Redef_terr of loc * string
 exception Shadow_terr of loc * string
+
 exception BF_alert
 exception BF_terr of ty
+
 exception Case_terr of expr
 
 let rec head = function
@@ -127,32 +134,39 @@ let find s e =
 
 
 
-(* Algorithme W appliqué à notre ast de pyret *)
+(* Fonctions de vérification de types *)
 
-let init_env = empty
-    |> add_gen "nothing" Tnoth
-    |> add_gen "num-modulo" (Tfun([Tint; Tint], Tint))
-    |> add_gen "empty" (Tlist(Tvar(V.create ())))
-    |> add_gen "link" ( let v = V.create () in 
-        Tfun([Tvar(v); Tlist(Tvar(v))], Tlist(Tvar(v))) )
-    |> add_gen "print" ( let v = V.create () in
-        Tfun([Tvar(v)], Tvar(v)) )
-    |> add_gen "raise" ( let v = V.create () in
-        Tfun([Tstr], Tvar(v)) )
-    |> add_gen "each" (let a, b = V.create (), V.create () in
-        Tfun([Tfun([Tvar(a)], Tvar(b)); Tlist(Tvar(a)) ], Tnoth) )
-    |> add_gen "fold" ( let a, b = V.create (), V.create () in
-Tfun([Tfun([Tvar(a); Tvar(b)], Tvar(a)) ;Tvar(a) ; Tlist(Tvar(b))], Tvar(a)) )
-
+(*
 let check_type t1 t2 = 
     if canon t1 <> canon t2 then raise (Wrong_alert(t1, t2))
+*)
+
+let rec rec_unify t1 t2 = match head t1, head t2 with
+    | Tany, _ | _, Tany
+    | Tnoth, Tnoth | Tbool, Tbool | Tint, Tint | Tstr, Tstr ->
+        ()
+    | Tlist ta, Tlist tb -> rec_unify ta tb
+    | Tfun(tla, ta), Tfun(tlb, tb) ->
+        List.iter2 rec_unify tla tlb; rec_unify ta tb
+    | Tvar v1, Tvar v2 ->
+        if not @@ V.equal v1 v2 then v1.def <- Some (Tvar v1)
+    | t, Tvar v | Tvar v, t -> v.def <- Some t
+    | ta, tb -> raise (Unification_alert(ta, tb))
+
+
+let unify loc t1 t2 =
+    try rec_unify t1 t2 with Unification_alert(ta, tb) ->
+    raise (Unification_terr(loc, t1, t2, ta, tb))
+
 
 let rec st_verif m t1 t2 = match head t1, head t2 with
-    | _, Tany -> m
+    | _, Tany
+    | Tnoth, Tnoth | Tbool, Tbool | Tint, Tint | Tstr, Tstr ->
+        m
     | Tlist(ta), Tlist(tb) -> st_verif m ta tb
     | Tfun(tl1, ta), Tfun(tl2, tb) ->
         if (List.length tl1) <> (List.length tl2) then
-            raise (Wrong_alert(t1, t2));
+            raise (ST_alert(t1, t2));
         let m' = st_verif m ta tb in
         List.fold_left2 st_verif m' tl2 tl1
     | Tvar v1 as ht1, Tvar v2 ->
@@ -171,13 +185,14 @@ let rec st_verif m t1 t2 = match head t1, head t2 with
             let t = Vmap.find v m in
             st_verif m t ht
         with Not_found -> Vmap.add v ht m end
-    | _ as t1, (_ as t2) -> check_type t1 t2; m
+    | _ as t1, (_ as t2) ->
+        raise (ST_alert(t1, t2))
 
 let try_sous_type loc t1 t2 = 
     try
         st_verif Vmap.empty t1 t2
-    with Wrong_alert(unif_t1, unif_t2) ->
-        raise (Wrong_terr(loc, t1, t2, unif_t1, unif_t2))
+    with ST_alert(unif_t1, unif_t2) ->
+        raise (ST_terr(loc, t1, t2, unif_t1, unif_t2))
 
 let lock_bindings m =
     let f (var, t) = var.def <- Some t in
@@ -213,7 +228,7 @@ let check_binop loc_typ_list = function
         with Not_found ->
             begin try
                 sous_type_list loc_typ_list Tstr; Tstr
-            with Wrong_terr _ ->
+            with ST_terr _ ->
                 sous_type_list loc_typ_list Tint; Tint
         end end
     | Sub | Mul | Div -> sous_type_list loc_typ_list Tint; Tint
@@ -248,6 +263,23 @@ let rec read_type e t = match t.desc with
             Tvar(Smap.find x e.varmap)
         with Not_found -> raise (Invalid_annot_terr t) end
     | _ -> raise (Invalid_annot_terr t)
+
+(* Algo W construisant l'AST typé *)
+
+let init_env = empty
+    |> add_gen "nothing" Tnoth
+    |> add_gen "num-modulo" (Tfun([Tint; Tint], Tint))
+    |> add_gen "empty" (Tlist(Tvar(V.create ())))
+    |> add_gen "link" ( let v = V.create () in 
+        Tfun([Tvar(v); Tlist(Tvar(v))], Tlist(Tvar(v))) )
+    |> add_gen "print" ( let v = V.create () in
+        Tfun([Tvar(v)], Tvar(v)) )
+    |> add_gen "raise" ( let v = V.create () in
+        Tfun([Tstr], Tvar(v)) )
+    |> add_gen "each" (let a, b = V.create (), V.create () in
+        Tfun([Tfun([Tvar(a)], Tvar(b)); Tlist(Tvar(a)) ], Tnoth) )
+    |> add_gen "fold" ( let a, b = V.create (), V.create () in
+Tfun([Tfun([Tvar(a); Tvar(b)], Tvar(a)) ;Tvar(a) ; Tlist(Tvar(b))], Tvar(a)) )
 
 let ping () = Format.printf "ping@."
 let pingarg f a = Format.printf "ping : %a@." f a
@@ -325,7 +357,7 @@ and w_stmt e s = match s.desc with
 and w_bexpr e be = match be.desc with
     | exp, [] -> let texp = w_expr e exp in
         ({ bexpr = (texp, []); t = texp.t } : t_bexpr)
-   | exp1, (bin, exp2)::q ->
+    | exp1, (bin, exp2)::q ->
         let expl = exp2 :: List.map snd q in
         let locl = exp1.loc :: List.map (fun exp -> exp.loc) expl in
         let texp1, texpl =
@@ -354,18 +386,22 @@ and w_expr e exp = match exp.desc with
         { t = tb.t; expr = TEblock tb }
 
     | Econd(be, ub, b, bebl, bo) ->
-        let tbe = w_bexpr e be
-        and tb = w_block e b
-        and tbebl = List.map (fun (be,b) -> (w_bexpr e be, w_block e b)) bebl
-        and tbo = Option.map (w_block e) bo in
-        check_type tbe.t Tbool;
-        List.iter (fun ((tbe : t_bexpr), _) -> check_type tbe.t Tbool) tbebl;
-        let tl = tb.t :: List.map (fun (_,(tb : t_block)) -> tb.t) tbebl in
+        let tbe = w_bexpr e be in
+        let tb = w_block e b in
+        let bel, bl = List.split bebl in
+        let tbel = List.map (w_bexpr e) bel in
+        let tbl = List.map (w_block e) bl in
+        let tbo = Option.map (w_block e) bo in
+        unify be.loc tbe.t Tbool;
+        List.iter2
+            (fun be (tbe: t_bexpr) -> unify be.loc tbe.t Tbool)
+            bel tbel;
+        let tl = tb.t :: List.map (fun (tb : t_block) -> tb.t) tbl in
         let tl' = (try (Option.get tbo).t ::tl with Invalid_argument _-> tl) in
         begin try
             eq_type_list tl';
-            { expr = TEcond(tbe, ub, tb, tbebl, tbo); t = tb.t }
-        with Wrong_alert _ -> raise_mess_terr exp.loc
+            { expr = TEcond(tbe, ub, tb, List.combine tbel tbl, tbo); t=tb.t }
+        with ST_alert _ -> raise_mess_terr exp.loc
             "Toutes les branches conditionnelles doivent avoir le même type."
         end
 
