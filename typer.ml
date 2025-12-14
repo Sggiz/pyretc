@@ -61,9 +61,13 @@ type schema = { vars : Vset.t; typ : typ; is_var : bool }
 
 module Smap = Map.Make(String)
 
-type env = { bindings : schema Smap.t; fvars : Vset.t; varmap : tvar Smap.t }
+type env = {
+    bindings : schema Smap.t;
+    fvars : Vset.t;
+    selfdef_map : tvar Smap.t
+}
 
-let empty = { bindings = Smap.empty; fvars = Vset.empty; varmap = Smap.empty }
+let empty = { bindings=Smap.empty; fvars=Vset.empty; selfdef_map=Smap.empty }
 
 let update_fvars s =
     Vset.fold (fun v s -> Vset.union (fvars (Tvar v)) s) s Vset.empty
@@ -74,7 +78,7 @@ let add s t is_var e =
     {
         bindings = Smap.add s new_schema e.bindings;
         fvars = Vset.union e.fvars new_vars;
-        varmap = e.varmap
+        selfdef_map = e.selfdef_map
     }
 
 let add_gen s t e =
@@ -87,7 +91,7 @@ let add_gen s t e =
     {
         bindings = Smap.add s new_schema e.bindings;
         fvars = e.fvars;
-        varmap = e.varmap
+        selfdef_map = e.selfdef_map
     }
 
 let add_selfdef e s =
@@ -95,7 +99,7 @@ let add_selfdef e s =
     {
         bindings = e.bindings;
         fvars = Vset.add newvar e.fvars;
-        varmap = Smap.add s newvar e.varmap
+        selfdef_map = Smap.add s newvar e.selfdef_map
     }
 
 module Vmap = Map.Make(V)
@@ -135,11 +139,6 @@ let find s e =
 
 
 (* Fonctions de vérification de types *)
-
-(*
-let check_type t1 t2 = 
-    if canon t1 <> canon t2 then raise (Wrong_alert(t1, t2))
-*)
 
 let rec rec_unify t1 t2 = match head t1, head t2 with
     | Tany, _ | _, Tany
@@ -183,34 +182,16 @@ let rec st_verif m t1 t2 = match head t1, head t2 with
             raise (ST_alert(Tvar v1, Tvar v2))
         else if v1.is_selfdef then Vmap.add v2 (Tvar v1) m
         else Vmap.add v1 (Tvar v2) m
-(*
-        else begin try
-            let t = Vmap.find v2 m in
-            st_verif m ht1 t
-        with Not_found -> Vmap.add v2 ht1 m end
-*)
     | ht, Tvar v ->
         if Vmap.mem v m then st_verif m ht (Vmap.find v m)
         else if v.is_selfdef then
             raise (ST_alert(ht, Tvar v))
         else Vmap.add v ht m
-(*
-        begin try
-            let t = Vmap.find v m in
-            st_verif m ht t
-        with Not_found -> Vmap.add v ht m end
-*)
     | Tvar v, ht ->
         if Vmap.mem v m then st_verif m (Vmap.find v m) ht
         else if v.is_selfdef then
             raise (ST_alert(Tvar v, ht))
         else Vmap.add v ht m
-(*
-        begin try
-            let t = Vmap.find v m in
-            st_verif m t ht
-        with Not_found -> Vmap.add v ht m end
-*)
     | t1, t2 ->
         raise (ST_alert(t1, t2))
 
@@ -250,8 +231,7 @@ let check_binop loc_typ_list = function
         let is_clue (_, t) = match t with |Tint|Tstr-> true |_-> false in
         begin try
             let _, t = List.find is_clue loc_typ_list in
-            sous_type_list loc_typ_list t;
-            t
+            sous_type_list loc_typ_list t; t
         with Not_found ->
             begin try
                 sous_type_list loc_typ_list Tstr; Tstr
@@ -287,14 +267,14 @@ let rec read_type e t = match t.desc with
         Tfun(List.map (read_type e)tyl, read_type e t)
     | Tannot(x, None) ->
         begin try
-            Tvar(Smap.find x e.varmap)
+            Tvar(Smap.find x e.selfdef_map)
         with Not_found -> raise (Invalid_annot_terr t) end
     | _ -> raise (Invalid_annot_terr t)
 
 let check_valid_selfdef e loc s = match s with
     | "Any" | "Nothing" | "Boolean" | "Number" | "String" | "List" ->
         raise (Shadow_terr(loc, s))
-    | _ -> if Smap.mem s e.varmap then raise (Shadow_terr(loc, s))
+    | _ -> if Smap.mem s e.selfdef_map then raise (Shadow_terr(loc, s))
 
 
 (* Algo W construisant l'AST typé *)
@@ -347,7 +327,7 @@ and w_stmt e s = match s.desc with
 
         let sch = {
             vars = List.fold_left
-                (fun s id -> Vset.add (Smap.find id new_env.varmap) s)
+                (fun s id -> Vset.add (Smap.find id new_env.selfdef_map) s)
                 Vset.empty targl;
             typ = Tfun(tl, t);
             is_var = false 
@@ -359,14 +339,14 @@ and w_stmt e s = match s.desc with
         let rec_env = {
             bindings = Smap.add f sch inner_env.bindings;
             fvars = inner_env.fvars;
-            varmap = inner_env.varmap
+            selfdef_map = inner_env.selfdef_map
         } in
         let tb = w_block rec_env b in
         sous_type b.loc tb.t t;
         let next_env = {
             bindings = Smap.add f sch e.bindings;
             fvars = e.fvars;
-            varmap = e.varmap
+            selfdef_map = e.selfdef_map
         } in
         next_env, { stmt = TSfun(f, targl, (idl, ub, tb)); t = Tfun(tl, t) }
 

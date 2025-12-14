@@ -25,10 +25,14 @@ let rec tp_typ fmt t = match t with
 
 let rec tp_stmt fmt ts = match ts.stmt with
     | TSbexpr tb -> fprintf fmt "@[%a@]" tp_bexpr tb
-    | TSdef(bool, id, tbe) -> 
+    | TSdef(bool, id, tbe) ->
         fprintf fmt "@[%s%s :: %a@]" (if bool then "var " else "") id
             tp_typ tbe.t
-    | _ -> fprintf fmt "typed statement"
+    | TSredef(id, tbe) ->
+        fprintf fmt "@[redef (%s :: %a) :: %a@]" id tp_typ tbe.t tp_typ ts.t
+    | TSfun(f, targl, _) ->
+        fprintf fmt "@[%s<%a> :: %a@]"
+            f (pp_list "," (fun fmt s -> fprintf fmt "%s" s)) targl tp_typ ts.t
 
 and tp_bexpr fmt tbe = match tbe.bexpr with
     | e, [] -> fprintf fmt "%a" tp_expr e

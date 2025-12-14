@@ -13,7 +13,10 @@ type: test/test.arr pyretc.exe
 	_build/default/pyretc.exe --type-only $<
 
 jcftype: runtest.sh pyretc.exe
-	sh $< -2
+	bash $< -2
+
+clean:
+	dune clean
 
 
 
@@ -28,7 +31,6 @@ test/%.s: test/%.arr pyretc.exe
 test/%.out: test/%.s
 	gcc -g -no-pie $< -o $@
 
-clean:
-	dune clean
 
 .PHONY: all clean parse jcfparse pyretc.exe
+
