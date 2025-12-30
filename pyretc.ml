@@ -71,14 +71,16 @@ let () =
         let f = Parser.file Lexer.token buf in
         close_in f_in;
 
-        if !parse_only then (Pretty_printer.print_file f; exit 0);
+        if !parse_only then (
+            Pretty_printer.print_file f;
+            exit 0);
 
         if !type_only then (
             Pretty_printer.print_file f;
             Pretty_type_printer.tprint_file @@ Typer.type_file f;
             exit 0);
 
-        Compile.compile_file f !ofile;
+        Compile.compile_file (Typer.type_file f) !ofile;
 
         ignore (ping_loc)
     with
