@@ -51,7 +51,7 @@ let print_bool_code =
     pushq !%rbp ++
     movq !%rsp !%rbp ++
     andq (imm (-16)) !%rsp ++
-    testq !%rdi !%rdi ++
+    testb !%dil !%dil ++
     jne "1f" ++
     leaq (lab ".Sprint_false") rdi ++
     jmp "2f" ++
@@ -92,7 +92,7 @@ let prealloc_init =
 let call_print = function
     | Tnoth -> nop
     | Tbool ->
-        movzbq (ind ~ofs:1 rdi) rdi ++
+        movb (ind ~ofs:1 rdi) !%dil ++
         call "print_bool"
     | Tint ->
         movq (ind ~ofs:1 rdi) !%rdi ++
