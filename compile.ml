@@ -15,10 +15,15 @@ let frame_size = ref 0
    des variables locales *)
 module StrMap = Map.Make(String)
 
+(* Table d'association pour les string de l'utilisateur *)
+let string_data_count = ref 0
+let string_data_table = Hashtbl.create 5
+let string_data_n = Format.sprintf "string_data_%d"
+
 (* Raccourci pour ajouter des sauts de ligne dans le code assembleur produit *)
 let newline = inline "\n"
 
-(* Fonctions utilitaires *)
+(* Fonctions d'allocation de mémoire *)
 
 let call_my_malloc nb_bytes =
     movq (imm nb_bytes) !%rdi ++
@@ -30,35 +35,6 @@ let my_malloc_code =
     movq !%rsp !%rbp ++
     andq (imm (-16)) !%rsp ++
     call "malloc" ++
-    movq !%rbp !%rsp ++
-    popq rbp ++
-    ret
-
-let print_int_code =
-    label "print_int" ++
-    pushq !%rbp ++
-    movq !%rsp !%rbp ++
-    andq (imm (-16)) !%rsp ++
-    movq !%rdi !%rsi ++
-    leaq (lab ".Sprint_int") rdi ++
-    call "printf" ++
-    movq !%rbp !%rsp ++
-    popq rbp ++
-    ret
-
-let print_bool_code =
-    label "print_bool" ++
-    pushq !%rbp ++
-    movq !%rsp !%rbp ++
-    andq (imm (-16)) !%rsp ++
-    testb !%dil !%dil ++
-    jne "1f" ++
-    leaq (lab ".Sprint_false") rdi ++
-    jmp "2f" ++
-    label "1" ++
-    leaq (lab ".Sprint_true") rdi ++
-    label "2" ++
-    call "printf" ++
     movq !%rbp !%rsp ++
     popq rbp ++
     ret
@@ -89,6 +65,49 @@ let prealloc_init =
     movb (imm 1) (ind ~ofs:1 rax) ++
     movq !%rax (lab "pre_true")
 
+(* Fonctions d'affichage *)
+
+let print_int_code =
+    label "print_int" ++
+    pushq !%rbp ++
+    movq !%rsp !%rbp ++
+    andq (imm (-16)) !%rsp ++
+    movq !%rdi !%rsi ++
+    leaq (lab ".Sprint_int") rdi ++
+    call "printf" ++
+    movq !%rbp !%rsp ++
+    popq rbp ++
+    ret
+
+let print_bool_code =
+    label "print_bool" ++
+    pushq !%rbp ++
+    movq !%rsp !%rbp ++
+    andq (imm (-16)) !%rsp ++
+    testb !%dil !%dil ++
+    jne "1f" ++
+    leaq (lab ".Sprint_false") rdi ++
+    jmp "2f" ++
+    label "1" ++
+    leaq (lab ".Sprint_true") rdi ++
+    label "2" ++
+    call "printf" ++
+    movq !%rbp !%rsp ++
+    popq rbp ++
+    ret
+
+let print_str_code =
+    label "print_str" ++
+    pushq !%rbp ++
+    movq !%rsp !%rbp ++
+    andq (imm (-16)) !%rsp ++
+    movq !%rdi !%rsi ++
+    leaq (lab ".Sprint_str") rdi ++
+    call "printf" ++
+    movq !%rbp !%rsp ++
+    popq rbp ++
+    ret
+
 let call_print = function
     | Tnoth -> nop
     | Tbool ->
@@ -97,7 +116,72 @@ let call_print = function
     | Tint ->
         movq (ind ~ofs:1 rdi) !%rdi ++
         call "print_int"
+    | Tstr ->
+        incq !%rdi ++
+        call "print_str"
     | _ -> failwith "A faire [call_print]"
+
+(* Fonctions de manipulation de chaîne *)
+
+let copy_string_code =
+    (* Copier la chaîne dans rdi vers celle dans rsi *)
+    label "copy_string" ++
+    movb (ind rdi) !%r8b ++
+    movb  !%r8b (ind rsi) ++
+    testb !%r8b !%r8b ++
+    je "1f" ++
+    incq !%rdi ++
+    incq !%rsi ++
+    jmp "copy_string" ++
+    label "1" ++
+    ret
+
+let len_string_code =
+    (* Calcule la taille de rdi, dans rax *)
+    label "len_string" ++
+    movq (imm 0) !%rax ++
+    label "1" ++
+    movb (ind rdi) !%r8b ++
+    testb !%r8b !%r8b ++
+    je "2f" ++
+    incq !%rax ++
+    incq !%rdi ++
+    jmp "1b" ++
+    label "2" ++
+    ret
+
+
+let concat_string_code =
+    (* Concatène la valeur rsi derrière la valeur rdi, résultat dans rax *)
+    label "concat_string" ++
+    pushq !%rsi ++
+    pushq !%rdi ++
+
+    incq !%rdi ++
+    call "len_string" ++
+    movq !%rax !%r8 ++
+
+    leaq (ind ~ofs:1 rsi) rdi ++
+    call "len_string" ++
+    movq !%rax !%r9 ++
+
+    movq !%r8 !%rdi ++
+    addq !%r9 !%rdi ++
+    addq (imm 2) !%rdi ++
+    call "my_malloc" ++
+
+    movb (imm 3) (ind rax) ++
+
+    leaq (ind ~ofs:1 rax) rsi ++
+    popq rdi ++
+    incq !%rdi ++
+    call "copy_string" ++
+
+    popq rdi ++
+    incq !% rdi ++
+    call "copy_string" ++
+
+    ret
 
 
 
@@ -105,6 +189,18 @@ let call_print = function
 
 let rec compile_bexpr tbexpr = match tbexpr.bexpr with
     | texpr, [] -> compile_expr texpr
+    | texpr1, (Add, texpr2) :: q ->
+        if texpr1.t = Tstr then (
+            compile_expr texpr1 ++
+            pushq !%rax ++
+            compile_bexpr ({bexpr = (texpr2, q); t=tbexpr.t}) ++
+            movq !%rax !%rsi ++
+            popq rdi ++
+            call "concat_string"
+        )
+        else (
+            failwith "A faire [compile_bexpr]"
+        )
     | _ -> failwith "A faire [compile_bexpr]"
 
 and compile_expr texpr = match texpr.expr with
@@ -114,6 +210,18 @@ and compile_expr texpr = match texpr.expr with
         call_my_malloc 9 ++
         movq (imm 2) (ind rax) ++
         movq (imm d) (ind ~ofs:1 rax)
+    | TEstring s ->
+        if not (Hashtbl.mem string_data_table s) then (
+            Hashtbl.add string_data_table s !string_data_count;
+            incr string_data_count
+        );
+        let n, len = Hashtbl.find string_data_table s, String.length s in
+        call_my_malloc (1 + len + 1) ++
+        movq (imm 3) (ind rax) ++
+        movq (ilab (string_data_n n)) !%rdi ++
+        movq !%rax !%rsi ++
+        incq !%rsi ++
+        call "copy_string"
     | TEcall({caller=TCident "print";t=_}, [tbexpr]) ->
         compile_bexpr tbexpr ++
         movq !%rax !%rdi ++
@@ -140,8 +248,8 @@ let compile_file (f: t_file) ofile =
     in
     let p =
         { text =
-            globl "main" ++ label "main" ++
-            (* alignement de la pile *)
+            globl "main" ++
+            label "main" ++
             pushq !%rbp ++
             movq !%rsp !%rbp ++
             newline ++
@@ -151,7 +259,6 @@ let compile_file (f: t_file) ofile =
 
             code ++
 
-            (* movq !%rbp !%rsp ++ *) (* assurer bonne gestion de pile *)
             popq rbp ++
             movq (imm 0) !%rax ++ (* exit *)
             ret ++
@@ -162,15 +269,29 @@ let compile_file (f: t_file) ofile =
             my_malloc_code ++
             print_int_code ++
             print_bool_code ++
+            print_str_code ++
+            copy_string_code ++
+            len_string_code ++
+            concat_string_code ++
             codefun ++
 
             newline;
 
           data =
-            label ".Sprint_int" ++ string "%d\n" ++
-            label ".Sprint_false" ++ string "false\n" ++
-            label ".Sprint_true" ++ string "true\n" ++
-            prealloc_data
+            label ".Sprint_false" ++ string "false" ++
+            label ".Sprint_true" ++ string "true" ++
+            label ".Sprint_int" ++ string "%d" ++
+            label ".Sprint_str" ++ string "%s" ++
+            prealloc_data ++
+            (Hashtbl.fold
+                (
+                    fun s n text ->
+                        text ++
+                        label (string_data_n n) ++
+                        string s
+                )
+                string_data_table nop
+            )
         }
     in
     let f_out = open_out ofile in
