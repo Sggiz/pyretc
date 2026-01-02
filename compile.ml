@@ -189,19 +189,46 @@ let concat_string_code =
 
 let rec compile_bexpr tbexpr = match tbexpr.bexpr with
     | texpr, [] -> compile_expr texpr
+    | texpr, op_list ->
+    begin match tbexpr.t with
+    | Tint ->
+        pushq !%r12 ++
+        compile_expr texpr ++
+        movq (ind ~ofs:1 rax) !%r12 ++
+        compile_bexpr_int op_list ++
+        call_my_malloc 9 ++
+        movq (imm 2) (ind rax) ++
+        movq !%r12 (ind ~ofs:1 rax) ++
+        popq r12
+    | Tstr -> compile_bexpr_str tbexpr
+    | _ -> failwith "A faire [compile_bexpr]" end
+
+and compile_bexpr_int = function
+    (* agit sur la valeur dans r12 *)
+    | [] -> nop
+    | (Add, texpr) :: q ->
+        compile_expr texpr ++
+        movq (ind ~ofs:1 rax) !%r8 ++
+        addq !%r8 !%r12 ++
+        compile_bexpr_int q
+    | (Sub, texpr) :: q ->
+        compile_expr texpr ++
+        movq (ind ~ofs:1 rax) !%r8 ++
+        subq !%r8 !%r12 ++
+        compile_bexpr_int q
+    | _ -> failwith "A faire [compile_bexpr_int]"
+
+
+and compile_bexpr_str tbexpr = match tbexpr.bexpr with
+    | texpr, [] -> compile_expr texpr
     | texpr1, (Add, texpr2) :: q ->
-        if texpr1.t = Tstr then (
-            compile_expr texpr1 ++
-            pushq !%rax ++
-            compile_bexpr ({bexpr = (texpr2, q); t=tbexpr.t}) ++
-            movq !%rax !%rsi ++
-            popq rdi ++
-            call "concat_string"
-        )
-        else (
-            failwith "A faire [compile_bexpr]"
-        )
-    | _ -> failwith "A faire [compile_bexpr]"
+        compile_expr texpr1 ++
+        pushq !%rax ++
+        compile_bexpr ({bexpr = (texpr2, q); t=tbexpr.t}) ++
+        movq !%rax !%rsi ++
+        popq rdi ++
+        call "concat_string"
+    | _ -> failwith "A faire [compile_bexpr_str]"
 
 and compile_expr texpr = match texpr.expr with
     | TFalse -> movq (lab "pre_false") !%rax
@@ -222,6 +249,7 @@ and compile_expr texpr = match texpr.expr with
         movq !%rax !%rsi ++
         incq !%rsi ++
         call "copy_string"
+    | TEbexpr bexpr -> compile_bexpr bexpr
     | TEcall({caller=TCident "print";t=_}, [tbexpr]) ->
         compile_bexpr tbexpr ++
         movq !%rax !%rdi ++
