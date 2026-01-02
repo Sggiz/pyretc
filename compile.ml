@@ -206,17 +206,23 @@ let rec compile_bexpr tbexpr = match tbexpr.bexpr with
 and compile_bexpr_int = function
     (* agit sur la valeur dans r12 *)
     | [] -> nop
-    | (Add, texpr) :: q ->
+    | (Ast.Div, texpr) :: q ->
         compile_expr texpr ++
         movq (ind ~ofs:1 rax) !%r8 ++
-        addq !%r8 !%r12 ++
+        movq !%r12 !%rax ++ cqto ++
+        idivq !%r8 ++
+        movq !%rax !%r12 ++
         compile_bexpr_int q
-    | (Sub, texpr) :: q ->
+    | (op , texpr) :: q ->
         compile_expr texpr ++
         movq (ind ~ofs:1 rax) !%r8 ++
-        subq !%r8 !%r12 ++
+        (match op with
+            | Add -> addq
+            | Sub -> subq
+            | Mul -> imulq
+            | _ -> failwith "A faire [compile_bexpr_int]"
+        ) !%r8 !%r12 ++
         compile_bexpr_int q
-    | _ -> failwith "A faire [compile_bexpr_int]"
 
 
 and compile_bexpr_str tbexpr = match tbexpr.bexpr with
