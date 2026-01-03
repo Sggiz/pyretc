@@ -8,6 +8,10 @@ exception Message_perr of string
 type binop = Eq | Neq | Lneq | Leq | Gneq | Geq | Add | Sub | Mul | Div
     | And | Or
 
+let is_arith = function
+    | Add | Sub | Mul | Div -> true
+    | _ -> false
+
 type 'a ast = { desc : 'a; loc : Lexing.position * Lexing.position }
 
 let peel (a : 'a ast) = a.desc

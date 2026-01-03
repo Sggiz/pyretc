@@ -18,7 +18,21 @@ module StrMap = Map.Make(String)
 (* Table d'association pour les string de l'utilisateur *)
 let string_data_count = ref 0
 let string_data_table = Hashtbl.create 5
-let string_data_n = Format.sprintf "string_data_%d"
+let string_data_n = Format.sprintf ".string_data_%d"
+
+(* Table pour la distinction des étiquettes *)
+let label_table = Hashtbl.create 5
+let get_label s =
+    let n = Hashtbl.find label_table s in
+    Format.sprintf "%s_%d" s n
+let get_new_label s =
+    try
+        let n = Hashtbl.find label_table s in
+        Hashtbl.replace label_table s (n+1);
+        Format.sprintf "%s_%d" s n
+    with Not_found ->
+        Hashtbl.add label_table s 1;
+        Format.sprintf "%s_%d" s 0
 
 (* Raccourci pour ajouter des sauts de ligne dans le code assembleur produit *)
 let newline = inline "\n"
@@ -41,11 +55,13 @@ let my_malloc_code =
 
 
 let prealloc_data =
-    label "pre_nothing" ++
+    label ".pre_nothing" ++
     dquad [0] ++
-    label "pre_false" ++
+    label ".pre_false" ++
     dquad [0] ++
-    label "pre_true" ++
+    label ".pre_true" ++
+    dquad [0] ++
+    label ".pre_empty" ++
     dquad [0]
 
 let prealloc_init =
@@ -53,17 +69,21 @@ let prealloc_init =
 
     call_my_malloc 1 ++
     movb (imm 0) (ind rax) ++
-    movq !%rax (lab "pre_nothing") ++
+    movq !%rax (lab ".pre_nothing") ++
 
     call_my_malloc 2 ++
     movb (imm 1) (ind rax) ++
     movb (imm 0) (ind ~ofs:1 rax) ++
-    movq !%rax (lab "pre_false") ++
+    movq !%rax (lab ".pre_false") ++
 
     call_my_malloc 2 ++
     movb (imm 1) (ind rax) ++
     movb (imm 1) (ind ~ofs:1 rax) ++
-    movq !%rax (lab "pre_true")
+    movq !%rax (lab ".pre_true") ++
+
+    call_my_malloc 1 ++
+    movb (imm 4) (ind rax) ++
+    movq !%rax (lab ".pre_empty")
 
 (* Fonctions d'affichage *)
 
@@ -190,20 +210,42 @@ let concat_string_code =
 let rec compile_bexpr tbexpr = match tbexpr.bexpr with
     | texpr, [] -> compile_expr texpr
     | texpr, op_list ->
-    begin match tbexpr.t with
-    | Tint ->
+    begin let op = fst @@ List.hd op_list in match tbexpr.t, op with
+    | Tint, _ -> (* opération arithmétique *)
         pushq !%r12 ++
         compile_expr texpr ++
         movq (ind ~ofs:1 rax) !%r12 ++
-        compile_bexpr_int op_list ++
+        compile_bexpr_int_arith op_list ++
         call_my_malloc 9 ++
         movq (imm 2) (ind rax) ++
         movq !%r12 (ind ~ofs:1 rax) ++
         popq r12
-    | Tstr -> compile_bexpr_str tbexpr
+    | Tstr, Add -> compile_bexpr_str tbexpr
+    | _ (* Tbool *), Lneq | _, Leq | _, Gneq | _, Geq ->
+        compile_bexpr_int_cmp texpr op (snd (List.hd op_list))
+    | _, Eq | _, Neq ->
+        compile_bexpr_poly_cmp texpr op (snd (List.hd op_list))
+    | _, And | _, Or ->
+        let t, nt = (
+            if op = And then ".pre_false", ".pre_true"
+            else ".pre_true", ".pre_false"
+        ) in
+        let l = get_new_label "bool_op_term" in
+        compile_bexpr_bool  l t nt (texpr :: (List.map snd op_list))
     | _ -> failwith "A faire [compile_bexpr]" end
 
-and compile_bexpr_int = function
+and compile_bexpr_bool l t nt = function
+    | [] -> nop
+    | [e] ->
+        compile_expr e ++
+        label l
+    | hd :: tl ->
+        compile_expr hd ++
+        cmpq !%rax (lab t) ++
+        je l ++
+        compile_bexpr_bool l t nt tl
+
+and compile_bexpr_int_arith = function
     (* agit sur la valeur dans r12 *)
     | [] -> nop
     | (Ast.Div, texpr) :: q ->
@@ -212,7 +254,7 @@ and compile_bexpr_int = function
         movq !%r12 !%rax ++ cqto ++
         idivq !%r8 ++
         movq !%rax !%r12 ++
-        compile_bexpr_int q
+        compile_bexpr_int_arith q
     | (op , texpr) :: q ->
         compile_expr texpr ++
         movq (ind ~ofs:1 rax) !%r8 ++
@@ -222,8 +264,74 @@ and compile_bexpr_int = function
             | Mul -> imulq
             | _ -> failwith "A faire [compile_bexpr_int]"
         ) !%r8 !%r12 ++
-        compile_bexpr_int q
+        compile_bexpr_int_arith q
 
+and compile_bexpr_int_cmp te1 op te2 =
+    compile_expr te1 ++
+    pushq (ind ~ofs:1 rax) ++
+    compile_expr te2 ++
+    movq (ind ~ofs:1 rax) !%r9 ++
+    popq r8 ++
+    subq !%r9 !%r8 ++
+    (match op with
+        | Lneq -> jl
+        | Leq -> jle
+        | Gneq -> jg
+        | Geq -> jge
+        | _ -> failwith "A faire [compile_bexpr_int]"
+    ) "1f" ++
+    movq (lab ".pre_false") !%rax ++
+    jmp "2f" ++
+    label "1" ++
+    movq (lab ".pre_true") !%rax ++
+    label "2"
+
+and compile_bexpr_poly_cmp (te1 : t_expr) op (te2 : t_expr) =
+    let res_eq, res_neq = match op with
+        | Ast.Eq -> movq (lab ".pre_true") !%rax, movq (lab ".pre_false") !%rax
+        | Ast.Neq -> movq (lab ".pre_false") !%rax, movq (lab ".pre_true") !%rax
+        | _ -> failwith "A faire [compile_bexpr_poly_cmp]"
+    in
+    if te1.t <> te2.t then
+        res_neq
+    else match te1.t with
+    | Tint ->
+        compile_expr te1 ++
+        pushq (ind ~ofs:1 rax) ++
+        compile_expr te2 ++
+        movq (ind ~ofs:1 rax) !%r8 ++
+        popq r9 ++
+        cmpq !%r8 !%r9 ++
+        je "1f" ++ res_neq ++ jmp "2f" ++ label "1" ++ res_eq ++ label "2"
+    | Tbool ->
+        compile_expr te1 ++
+        pushq !%rax ++
+        compile_expr te2 ++
+        popq r8 ++
+        cmpq !%rax !%r8 ++
+        je "1f" ++ res_neq ++ jmp "2f" ++ label "1" ++ res_eq ++ label "2"
+    | Tstr ->
+        pushq !%r12 ++ pushq !%r13 ++
+        compile_expr te1 ++
+        movq !%rax !%r12 ++
+        compile_expr te2 ++
+        movq !%rax !%r13 ++
+        label "1" ++
+        incq !%r12 ++ incq !%r13 ++
+        movb (ind r12) !%r8b ++
+        movb (ind r13) !%r9b ++
+        cmpb !%r8b !%r9b ++
+        jne "2f" ++
+        testb !%r8b !%r8b ++
+        jne "1b" ++
+        res_eq ++
+        jmp "3f" ++
+        label "2" ++
+        res_neq ++
+        label "3" ++
+        popq r13 ++ popq r12
+
+    | _ -> failwith "A faire [compile_bexpr_poly_cmp]"
 
 and compile_bexpr_str tbexpr = match tbexpr.bexpr with
     | texpr, [] -> compile_expr texpr
@@ -237,8 +345,8 @@ and compile_bexpr_str tbexpr = match tbexpr.bexpr with
     | _ -> failwith "A faire [compile_bexpr_str]"
 
 and compile_expr texpr = match texpr.expr with
-    | TFalse -> movq (lab "pre_false") !%rax
-    | TTrue -> movq (lab "pre_true") !%rax
+    | TFalse -> movq (lab ".pre_false") !%rax
+    | TTrue -> movq (lab ".pre_true") !%rax
     | TEint d ->
         call_my_malloc 9 ++
         movq (imm 2) (ind rax) ++
@@ -258,8 +366,10 @@ and compile_expr texpr = match texpr.expr with
     | TEbexpr bexpr -> compile_bexpr bexpr
     | TEcall({caller=TCident "print";t=_}, [tbexpr]) ->
         compile_bexpr tbexpr ++
+        pushq !%rax ++
         movq !%rax !%rdi ++
-        call_print tbexpr.t
+        call_print tbexpr.t ++
+        popq rax
     | _ -> failwith "A faire [compile_expr]"
 
 and compile_stmt (codefun, code) i t_stmt =
