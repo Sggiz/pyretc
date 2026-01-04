@@ -55,7 +55,6 @@ and tt_expr =
     | TEcall of t_caller * t_bexpr list
     | TElam of t_funbody
     | TEcases of t_bexpr * ublock * tt_branch list
-    | TEloop of t_caller * t_from list * ublock * t_block
 
 and t_caller = { caller : tt_caller; t : typ }
 and tt_caller =
@@ -63,8 +62,6 @@ and tt_caller =
     | TCcall of t_caller * t_bexpr list
 
 and tt_branch = string * string list option * t_block
-
-and t_from = string * t_bexpr
 
 
 type t_file = { file : tt_file; t : typ }

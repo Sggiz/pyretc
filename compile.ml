@@ -3,17 +3,8 @@
 
 open Format
 open X86_64
-open Typed_ast
-
-(* Exception à lever quand une variable est mal utilisée *)
-exception VarUndef of string
-
-(* Taille du tableau d'activation *)
-let frame_size = ref 0
-
-(* Table d'association pour la position par rapport à %rbp (en octets)
-   des variables locales *)
-module StrMap = Map.Make(String)
+open Closure_ast
+open Closure
 
 (* Table d'association pour les string de l'utilisateur *)
 let string_data_count = ref 0
@@ -22,9 +13,6 @@ let string_data_n = Format.sprintf ".string_data_%d"
 
 (* Table pour la distinction des étiquettes *)
 let label_table = Hashtbl.create 5
-let get_label s =
-    let n = Hashtbl.find label_table s in
-    Format.sprintf "%s_%d" s n
 let get_new_label s =
     try
         let n = Hashtbl.find label_table s in
@@ -129,7 +117,7 @@ let print_str_code =
     ret
 
 let call_print = function
-    | Tnoth -> nop
+    | Typed_ast.Tnoth -> nop
     | Tbool ->
         movb (ind ~ofs:1 rdi) !%dil ++
         call "print_bool"
@@ -207,31 +195,31 @@ let concat_string_code =
 
 (* Compilation ... *)
 
-let rec compile_bexpr tbexpr = match tbexpr.bexpr with
-    | texpr, [] -> compile_expr texpr
-    | texpr, op_list ->
-    begin let op = fst @@ List.hd op_list in match tbexpr.t, op with
+let rec compile_bexpr bexpr = match bexpr.desc with
+    | expr, [] -> compile_expr expr
+    | expr, op_list ->
+    begin let op = fst @@ List.hd op_list in match bexpr.t, op with
     | Tint, _ -> (* opération arithmétique *)
         pushq !%r12 ++
-        compile_expr texpr ++
+        compile_expr expr ++
         movq (ind ~ofs:1 rax) !%r12 ++
         compile_bexpr_int_arith op_list ++
         call_my_malloc 9 ++
         movq (imm 2) (ind rax) ++
         movq !%r12 (ind ~ofs:1 rax) ++
         popq r12
-    | Tstr, Add -> compile_bexpr_str tbexpr
+    | Tstr, Ast.Add -> compile_bexpr_str bexpr
     | _ (* Tbool *), Lneq | _, Leq | _, Gneq | _, Geq ->
-        compile_bexpr_int_cmp texpr op (snd (List.hd op_list))
+        compile_bexpr_int_cmp expr op (snd (List.hd op_list))
     | _, Eq | _, Neq ->
-        compile_bexpr_poly_cmp texpr op (snd (List.hd op_list))
+        compile_bexpr_poly_cmp expr op (snd (List.hd op_list))
     | _, And | _, Or ->
         let t, nt = (
             if op = And then ".pre_false", ".pre_true"
             else ".pre_true", ".pre_false"
         ) in
         let l = get_new_label "bool_op_term" in
-        compile_bexpr_bool  l t nt (texpr :: (List.map snd op_list))
+        compile_bexpr_bool  l t nt (expr :: (List.map snd op_list))
     | _ -> failwith "A faire [compile_bexpr]" end
 
 and compile_bexpr_bool l t nt = function
@@ -248,15 +236,15 @@ and compile_bexpr_bool l t nt = function
 and compile_bexpr_int_arith = function
     (* agit sur la valeur dans r12 *)
     | [] -> nop
-    | (Ast.Div, texpr) :: q ->
-        compile_expr texpr ++
+    | (Ast.Div, expr) :: q ->
+        compile_expr expr ++
         movq (ind ~ofs:1 rax) !%r8 ++
         movq !%r12 !%rax ++ cqto ++
         idivq !%r8 ++
         movq !%rax !%r12 ++
         compile_bexpr_int_arith q
-    | (op , texpr) :: q ->
-        compile_expr texpr ++
+    | (op , expr) :: q ->
+        compile_expr expr ++
         movq (ind ~ofs:1 rax) !%r8 ++
         (match op with
             | Add -> addq
@@ -266,15 +254,15 @@ and compile_bexpr_int_arith = function
         ) !%r8 !%r12 ++
         compile_bexpr_int_arith q
 
-and compile_bexpr_int_cmp te1 op te2 =
-    compile_expr te1 ++
+and compile_bexpr_int_cmp e1 op e2 =
+    compile_expr e1 ++
     pushq (ind ~ofs:1 rax) ++
-    compile_expr te2 ++
+    compile_expr e2 ++
     movq (ind ~ofs:1 rax) !%r9 ++
     popq r8 ++
     subq !%r9 !%r8 ++
     (match op with
-        | Lneq -> jl
+        | Ast.Lneq -> jl
         | Leq -> jle
         | Gneq -> jg
         | Geq -> jge
@@ -286,35 +274,35 @@ and compile_bexpr_int_cmp te1 op te2 =
     movq (lab ".pre_true") !%rax ++
     label "2"
 
-and compile_bexpr_poly_cmp (te1 : t_expr) op (te2 : t_expr) =
+and compile_bexpr_poly_cmp (e1 : c_expr) op (e2 : c_expr) =
     let res_eq, res_neq = match op with
         | Ast.Eq -> movq (lab ".pre_true") !%rax, movq (lab ".pre_false") !%rax
         | Ast.Neq -> movq (lab ".pre_false") !%rax, movq (lab ".pre_true") !%rax
         | _ -> failwith "A faire [compile_bexpr_poly_cmp]"
     in
-    if te1.t <> te2.t then
+    if e1.t <> e2.t then
         res_neq
-    else match te1.t with
+    else match e1.t with
     | Tint ->
-        compile_expr te1 ++
+        compile_expr e1 ++
         pushq (ind ~ofs:1 rax) ++
-        compile_expr te2 ++
+        compile_expr e2 ++
         movq (ind ~ofs:1 rax) !%r8 ++
         popq r9 ++
         cmpq !%r8 !%r9 ++
         je "1f" ++ res_neq ++ jmp "2f" ++ label "1" ++ res_eq ++ label "2"
     | Tbool ->
-        compile_expr te1 ++
+        compile_expr e1 ++
         pushq !%rax ++
-        compile_expr te2 ++
+        compile_expr e2 ++
         popq r8 ++
         cmpq !%rax !%r8 ++
         je "1f" ++ res_neq ++ jmp "2f" ++ label "1" ++ res_eq ++ label "2"
     | Tstr ->
         pushq !%r12 ++ pushq !%r13 ++
-        compile_expr te1 ++
+        compile_expr e1 ++
         movq !%rax !%r12 ++
-        compile_expr te2 ++
+        compile_expr e2 ++
         movq !%rax !%r13 ++
         label "1" ++
         incq !%r12 ++ incq !%r13 ++
@@ -333,25 +321,25 @@ and compile_bexpr_poly_cmp (te1 : t_expr) op (te2 : t_expr) =
 
     | _ -> failwith "A faire [compile_bexpr_poly_cmp]"
 
-and compile_bexpr_str tbexpr = match tbexpr.bexpr with
+and compile_bexpr_str bexpr = match bexpr.desc with
     | texpr, [] -> compile_expr texpr
-    | texpr1, (Add, texpr2) :: q ->
+    | texpr1, (Ast.Add, texpr2) :: q ->
         compile_expr texpr1 ++
         pushq !%rax ++
-        compile_bexpr ({bexpr = (texpr2, q); t=tbexpr.t}) ++
+        compile_bexpr ({desc = (texpr2, q); t=bexpr.t}) ++
         movq !%rax !%rsi ++
         popq rdi ++
         call "concat_string"
     | _ -> failwith "A faire [compile_bexpr_str]"
 
-and compile_expr texpr = match texpr.expr with
-    | TFalse -> movq (lab ".pre_false") !%rax
-    | TTrue -> movq (lab ".pre_true") !%rax
-    | TEint d ->
+and compile_expr expr = match expr.desc with
+    | CFalse -> movq (lab ".pre_false") !%rax
+    | CTrue -> movq (lab ".pre_true") !%rax
+    | CEint d ->
         call_my_malloc 9 ++
         movq (imm 2) (ind rax) ++
         movq (imm d) (ind ~ofs:1 rax)
-    | TEstring s ->
+    | CEstring s ->
         if not (Hashtbl.mem string_data_table s) then (
             Hashtbl.add string_data_table s !string_data_count;
             incr string_data_count
@@ -363,32 +351,33 @@ and compile_expr texpr = match texpr.expr with
         movq !%rax !%rsi ++
         incq !%rsi ++
         call "copy_string"
-    | TEbexpr bexpr -> compile_bexpr bexpr
-    | TEcall({caller=TCident "print";t=_}, [tbexpr]) ->
-        compile_bexpr tbexpr ++
+    | CEbexpr bexpr -> compile_bexpr bexpr
+    | CEcall({desc=CCvar (Vglobal "print");t=_}, [bexpr]) ->
+        compile_bexpr bexpr ++
         pushq !%rax ++
         movq !%rax !%rdi ++
-        call_print tbexpr.t ++
+        call_print bexpr.t ++
         popq rax
     | _ -> failwith "A faire [compile_expr]"
 
-and compile_stmt (codefun, code) i t_stmt =
+and compile_stmt (codefun, code) i stmt =
     let comment_line =
         if i = -1 then nop else 
         comment (Format.sprintf "global stmt number %d" i)
     in
-    match t_stmt.stmt with
-    | TSbexpr tbexpr ->
-        let tbexpr_code = compile_bexpr tbexpr in
-        (codefun, code ++ comment_line ++ tbexpr_code ++ newline)
+    match stmt.desc with
+    | CSbexpr bexpr ->
+        let bexpr_code = compile_bexpr bexpr in
+        (codefun, code ++ comment_line ++ bexpr_code ++ newline)
     | _ -> failwith "A faire [compile_stmt]"
 
 
 (* Compile le fichier f et enregistre le code dans le fichier ofile *)
-let compile_file (f: t_file) ofile =
+let compile_file (f: Typed_ast.t_file) ofile =
+    let cf = closure_file f in
     let codefun, code = fst @@
         List.fold_left (fun (c, i) stmt -> compile_stmt c i stmt, i+1) 
-            ((nop, nop), 0) f.file
+            ((nop, nop), 0) cf.desc
     in
     let p =
         { text =

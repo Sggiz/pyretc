@@ -180,8 +180,3 @@ let () =
             exit 1
 
 
-        | Compile.VarUndef s ->
-            eprintf "Erreur de compilation: la variable %s n'est pas définie@."
-            s;
-            exit 1
-

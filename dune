@@ -7,6 +7,7 @@
   (promote (until-clean))
   (modules ast typed_ast
            lexer parser typer
+           closure_ast closure
            x86_64 compile pyretc
            pretty_printer pretty_type_printer )
   (flags ()))
