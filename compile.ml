@@ -352,7 +352,8 @@ and compile_expr expr = match expr.desc with
         incq !%rsi ++
         call "copy_string"
     | CEbexpr bexpr -> compile_bexpr bexpr
-    | CEcall({desc=CCvar (Vglobal "print");t=_}, [bexpr]) ->
+(*     | CEcall({desc=CCvar (Vglobal "print");t=_}, [bexpr]) *)
+    | CEprint bexpr ->
         compile_bexpr bexpr ++
         pushq !%rax ++
         movq !%rax !%rdi ++
@@ -374,7 +375,7 @@ and compile_stmt (codefun, code) i stmt =
 
 (* Compile le fichier f et enregistre le code dans le fichier ofile *)
 let compile_file (f: Typed_ast.t_file) ofile =
-    let cf = closure_file f in
+    let cf, fp = closure_file f in
     let codefun, code = fst @@
         List.fold_left (fun (c, i) stmt -> compile_stmt c i stmt, i+1) 
             ((nop, nop), 0) cf.desc

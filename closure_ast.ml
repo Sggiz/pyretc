@@ -19,9 +19,9 @@ and cc_block = c_stmt list
 
 and c_stmt = cc_stmt c_ast
 and cc_stmt =
-    | CSfun of  fun_id * c_block
-    | CSdef of var * c_bexpr
-    | Csredef of var * c_bexpr
+    | CSfun of var * fun_id * int array
+    | CSdef of int * c_bexpr
+    | Csredef of int * c_bexpr
     | CSbexpr of c_bexpr
 
 and c_bexpr = cc_bexpr c_ast
@@ -39,7 +39,7 @@ and cc_expr =
     | CEcond of c_bexpr * c_block * (c_bexpr * c_block) list
         * c_block option
     | CEcall of c_caller * c_bexpr list
-    | CEclos of fun_id * var list
+    | CEprint of c_bexpr
     | CEcases of c_bexpr * c_block * c_block
         (* cas empty puis cas link *)
 
@@ -48,7 +48,7 @@ and cc_caller =
     | CCvar of var
     | CCcall of c_caller * c_bexpr list
 
-type c_file = cc_file c_ast
+type c_file = cc_file c_ast * frame_size
 and cc_file = c_stmt list
 
 
