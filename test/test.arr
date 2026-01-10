@@ -1,6 +1,6 @@
-
-print(false or print(false))
-print("\n")
-print(true and print(false))
+var x = 41
+print(x)
+x := 42
+print(x)
 print("\n")
 

@@ -351,6 +351,13 @@ and compile_expr expr = match expr.desc with
         movq !%rax !%rsi ++
         incq !%rsi ++
         call "copy_string"
+    | CEvar(Vglobal x) ->
+        movq (lab x) !%rax
+    | CEvar(Vlocal pos) ->
+        movq (ind ~ofs:pos rbp) !%rax
+    | CEvar(Vclos pos) ->
+        movq (ind ~ofs:16 rbp) !%rax ++
+        movq (ind ~ofs:pos rax) !%rax
     | CEbexpr bexpr -> compile_bexpr bexpr
 (*     | CEcall({desc=CCvar (Vglobal "print");t=_}, [bexpr]) *)
     | CEprint bexpr ->
@@ -370,6 +377,12 @@ and compile_stmt (codefun, code) i stmt =
     | CSbexpr bexpr ->
         let bexpr_code = compile_bexpr bexpr in
         (codefun, code ++ comment_line ++ bexpr_code ++ newline)
+    | CSdef(pos, bexpr) ->
+        let bexpr_code = compile_bexpr bexpr in
+        (codefun,
+            code ++ comment_line ++ bexpr_code ++
+            movq !%rax (ind ~ofs:pos rbp)
+        )
     | _ -> failwith "A faire [compile_stmt]"
 
 
@@ -386,6 +399,8 @@ let compile_file (f: Typed_ast.t_file) ofile =
             label "main" ++
             pushq !%rbp ++
             movq !%rsp !%rbp ++
+            addq (imm fp) !%rsp ++
+
             newline ++
 
             prealloc_init ++
@@ -393,6 +408,7 @@ let compile_file (f: Typed_ast.t_file) ofile =
 
             code ++
 
+            subq (imm fp) !%rsp ++
             popq rbp ++
             movq (imm 0) !%rax ++ (* exit *)
             ret ++

@@ -10,7 +10,6 @@ type var =
     | Vclos of int
 
 type frame_size = int
-type fun_id = int
 
 type 'a c_ast = { desc : 'a ; t : typ }
 
@@ -19,9 +18,8 @@ and cc_block = c_stmt list
 
 and c_stmt = cc_stmt c_ast
 and cc_stmt =
-    | CSfun of var * fun_id * int array
+    | CSfun of int * string * var array * frame_size
     | CSdef of int * c_bexpr
-    | Csredef of int * c_bexpr
     | CSbexpr of c_bexpr
 
 and c_bexpr = cc_bexpr c_ast
@@ -38,8 +36,8 @@ and cc_expr =
     | CEblock of c_block
     | CEcond of c_bexpr * c_block * (c_bexpr * c_block) list
         * c_block option
-    | CEcall of c_caller * c_bexpr list
     | CEprint of c_bexpr
+    | CEcall of c_caller * c_bexpr list
     | CEcases of c_bexpr * c_block * c_block
         (* cas empty puis cas link *)
 
