@@ -43,13 +43,13 @@ let my_malloc_code =
 
 
 let prealloc_data =
-    label ".pre_nothing" ++
+    label "nothing" ++
     dquad [0] ++
     label ".pre_false" ++
     dquad [0] ++
     label ".pre_true" ++
     dquad [0] ++
-    label ".pre_empty" ++
+    label "empty" ++
     dquad [0]
 
 let prealloc_init =
@@ -57,7 +57,7 @@ let prealloc_init =
 
     call_my_malloc 1 ++
     movb (imm 0) (ind rax) ++
-    movq !%rax (lab ".pre_nothing") ++
+    movq !%rax (lab "nothing") ++
 
     call_my_malloc 2 ++
     movb (imm 1) (ind rax) ++
@@ -71,7 +71,7 @@ let prealloc_init =
 
     call_my_malloc 1 ++
     movb (imm 4) (ind rax) ++
-    movq !%rax (lab ".pre_empty")
+    movq !%rax (lab "empty")
 
 (* Fonctions d'affichage *)
 
@@ -195,7 +195,19 @@ let concat_string_code =
 
 (* Compilation ... *)
 
-let rec compile_bexpr bexpr = match bexpr.desc with
+let rec compile_block b =
+    List.fold_left (++) nop @@ List.map (compile_stmt (-1)) b.desc
+
+and compile_var = function
+    | Vglobal x ->
+        movq (lab x) !%rax
+    | Vlocal pos ->
+        movq (ind ~ofs:pos rbp) !%rax
+    | Vclos pos ->
+        movq (ind ~ofs:16 rbp) !%rax ++
+        movq (ind ~ofs:(9+8*pos) rax) !%rax
+
+and compile_bexpr bexpr = match bexpr.desc with
     | expr, [] -> compile_expr expr
     | expr, op_list ->
     begin let op = fst @@ List.hd op_list in match bexpr.t, op with
@@ -277,7 +289,7 @@ and compile_bexpr_int_cmp e1 op e2 =
 and compile_bexpr_poly_cmp (e1 : c_expr) op (e2 : c_expr) =
     let res_eq, res_neq = match op with
         | Ast.Eq -> movq (lab ".pre_true") !%rax, movq (lab ".pre_false") !%rax
-        | Ast.Neq -> movq (lab ".pre_false") !%rax, movq (lab ".pre_true") !%rax
+        | Ast.Neq ->movq (lab ".pre_false") !%rax, movq (lab ".pre_true") !%rax
         | _ -> failwith "A faire [compile_bexpr_poly_cmp]"
     in
     if e1.t <> e2.t then
@@ -337,7 +349,7 @@ and compile_expr expr = match expr.desc with
     | CTrue -> movq (lab ".pre_true") !%rax
     | CEint d ->
         call_my_malloc 9 ++
-        movq (imm 2) (ind rax) ++
+        movb (imm 2) (ind rax) ++
         movq (imm d) (ind ~ofs:1 rax)
     | CEstring s ->
         if not (Hashtbl.mem string_data_table s) then (
@@ -346,19 +358,35 @@ and compile_expr expr = match expr.desc with
         );
         let n, len = Hashtbl.find string_data_table s, String.length s in
         call_my_malloc (1 + len + 1) ++
-        movq (imm 3) (ind rax) ++
+        movb (imm 3) (ind rax) ++
         movq (ilab (string_data_n n)) !%rdi ++
         movq !%rax !%rsi ++
         incq !%rsi ++
         call "copy_string"
-    | CEvar(Vglobal x) ->
-        movq (lab x) !%rax
-    | CEvar(Vlocal pos) ->
-        movq (ind ~ofs:pos rbp) !%rax
-    | CEvar(Vclos pos) ->
-        movq (ind ~ofs:16 rbp) !%rax ++
-        movq (ind ~ofs:pos rax) !%rax
+    | CEvar v -> compile_var v
     | CEbexpr bexpr -> compile_bexpr bexpr
+    | CEblock b ->
+        compile_block b
+    | CEcond(if_bexpr, if_block, elif_list, else_block_option) ->
+        let lout = get_new_label "out" in
+        let cond_branch_code (bexpr, block) =
+            let next_label = get_new_label "else" in
+            compile_bexpr bexpr ++
+            movb (ind ~ofs:1 rax) !%al ++
+            testb !%al !%al ++
+            je next_label ++
+            compile_block block ++
+            jmp lout ++
+            label next_label
+        in
+        (List.fold_left (++) nop @@ List.map cond_branch_code
+            ((if_bexpr, if_block) :: elif_list)) ++
+        (match else_block_option with
+            | None -> nop
+            | Some b -> compile_block b
+        ) ++
+        label lout
+
 (*     | CEcall({desc=CCvar (Vglobal "print");t=_}, [bexpr]) *)
     | CEprint bexpr ->
         compile_bexpr bexpr ++
@@ -366,32 +394,74 @@ and compile_expr expr = match expr.desc with
         movq !%rax !%rdi ++
         call_print bexpr.t ++
         popq rax
+    | CEcall(caller, bexpr_list) ->
+        (List.fold_left (++) nop @@ List.rev_map
+            (fun be -> compile_bexpr be ++ pushq !%rax) bexpr_list) ++
+        compile_caller caller ++
+        pushq !%rax ++
+        call_star (ind ~ofs:1 rax) ++
+        addq (imm (8*(1 + List.length bexpr_list))) !%rsp
     | _ -> failwith "A faire [compile_expr]"
 
-and compile_stmt (codefun, code) i stmt =
+and compile_caller c = match c.desc with
+    | CCvar v -> compile_var v
+    | CCcall(caller, bexpr_list) ->
+        (List.fold_left (++) nop @@ List.rev_map
+            (fun be -> compile_bexpr be ++ pushq !%rax) bexpr_list) ++
+        compile_caller caller ++
+        pushq !%rax ++
+        call_star (ind ~ofs:1 rax) ++
+        addq (imm (8*(1 + List.length bexpr_list))) !%rsp
+
+and compile_stmt i stmt =
     let comment_line =
-        if i = -1 then nop else 
+        if i = -1 then nop else
         comment (Format.sprintf "global stmt number %d" i)
     in
     match stmt.desc with
     | CSbexpr bexpr ->
-        let bexpr_code = compile_bexpr bexpr in
-        (codefun, code ++ comment_line ++ bexpr_code ++ newline)
+        comment_line ++
+        compile_bexpr bexpr ++
+        newline
     | CSdef(pos, bexpr) ->
-        let bexpr_code = compile_bexpr bexpr in
-        (codefun,
-            code ++ comment_line ++ bexpr_code ++
-            movq !%rax (ind ~ofs:pos rbp)
-        )
-    | _ -> failwith "A faire [compile_stmt]"
+        comment_line ++
+        compile_bexpr bexpr ++
+        movq !%rax (ind ~ofs:pos rbp) ++
+        newline
+    | CSfun(pos, gfun_name, fvars) ->
+        let nb_fvars = Array.length fvars in
+        comment_line ++
+        call_my_malloc (9 + 8*nb_fvars) ++
+        movq (imm 6) (ind rax) ++
+        movq (ilab gfun_name) (ind ~ofs:1 rax) ++ (* lab ou ilab? *)
+        (Array.fold_left (++) nop @@ Array.mapi
+            (fun k v -> match v with
+            | Vglobal x -> nop (* normalement inatteignable *)
+            | Vlocal p ->
+                if p = 0 then
+                    movq !%rax (ind ~ofs:(9 + 8*k) rax)
+                else
+                    movq (ind ~ofs:p rbp) !%r8 ++
+                    movq !%r8 (ind ~ofs:(9 + 8*k) rax)
+            | Vclos j ->
+                movq (ind ~ofs:16 rbp) !%r8 ++
+                movq (ind ~ofs:(9 + 8*j) r8) !%r8 ++
+                movq !%r8 (ind ~ofs:(9 + 8*k) rax)
+            ) fvars) ++
+        movq !%rax (ind ~ofs:pos rbp)
 
 
 (* Compile le fichier f et enregistre le code dans le fichier ofile *)
 let compile_file (f: Typed_ast.t_file) ofile =
-    let cf, fp = closure_file f in
-    let codefun, code = fst @@
-        List.fold_left (fun (c, i) stmt -> compile_stmt c i stmt, i+1) 
-            ((nop, nop), 0) cf.desc
+    let cf, fp, gfun_list = closure_file f in
+    let code = List.fold_left (++) nop @@ List.mapi compile_stmt cf.desc in
+    let codefun = List.fold_left (++) nop @@ List.rev_map (
+        fun (f, fp, b) ->
+            label f ++
+            pushq !%rbp ++ movq !%rsp !%rbp ++ addq (imm fp) !%rsp ++ newline++
+            compile_block b ++
+            subq (imm fp) !%rsp ++ popq rbp ++ ret ++ newline
+        ) gfun_list
     in
     let p =
         { text =
@@ -407,6 +477,8 @@ let compile_file (f: Typed_ast.t_file) ofile =
             newline ++
 
             code ++
+
+            newline ++
 
             subq (imm fp) !%rsp ++
             popq rbp ++

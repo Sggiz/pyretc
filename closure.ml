@@ -10,8 +10,8 @@ exception VarUndef of string
 let (genv : (string, unit) Hashtbl.t) = Hashtbl.create 17
 let add_genv s = Hashtbl.add genv s ()
 
-(* Dont les fonctions introduites par explicitation des fermetures *)
-let gfuns : (string * c_block) list ref = ref []
+(* Les fonctions introduites par explicitation des fermetures *)
+let gfuns : (string * int * c_block) list ref = ref []
 let add_gfun gf = gfuns := gf :: !gfuns
 let curr_fun_id = ref 0
 let get_fun_name () =
@@ -32,7 +32,7 @@ let clos = ref 0
 let reset () =
     Hashtbl.reset genv;
     List.iter add_genv
-        ["nothing"];
+        ["nothing";"empty"];
 (*  ["nothing";"num-modulo";"empty";"link";"print";"raise";"each";"fold"]; *)
 (* pas besoin d'ajouter "print" *)
     gfuns := [];
@@ -50,7 +50,7 @@ let rec closure_block env fpcur fvars b =
     {desc=csl; t=b.t}, fpnew, fvars
 
 and closure_fold_block env fpcur fvars = function
-        | [] -> [], fpcur, Smap.empty
+        | [] -> [], fpcur, fvars
         | stmt :: q ->
             let cs, fpnew, newfvars, defined =
                 closure_stmt env fpcur fvars stmt in
@@ -89,18 +89,20 @@ and closure_stmt env fpcur fvars s = match s.stmt with
         let cb, fpnew, newfvars =
             closure_block funbody_env fp_init Smap.empty b in
         let gfun_name = get_fun_name () in
-        add_gfun (gfun_name, cb);
+        add_gfun (gfun_name, fpnew, cb);
+(*         add_genv gfun_name; *)
         let pos_array = Array.make !clos (Vlocal 0) in
         Smap.iter (fun x clos_pos ->
                 let v = (
-                if Hashtbl.mem genv x then Vglobal x
+                if x = f then Vlocal 0
+                else if Hashtbl.mem genv x then Vglobal x
                 else if Smap.mem x env then Vlocal (Smap.find x env)
                 else if Smap.mem x fvars then Vclos (Smap.find x env)
                 else raise (VarUndef x)
                 ) in
                 pos_array.(clos_pos) <- v
             ) newfvars;
-        let cf = {desc=CSfun(fpcur, gfun_name, pos_array, fpnew); t=s.t} in
+        let cf = {desc=CSfun(fpcur, gfun_name, pos_array); t=s.t} in
         clos := save_clos;
         cf, fpcur, fvars, Some f
 
@@ -112,7 +114,7 @@ and closure_bexpr env fpcur fvars { bexpr = e, op_list; t=t } =
     { desc= List.hd cexprl, new_op_list; t=t}, fpmin, newfvars
 
 and closure_fold_bexpr env fpcur fvars = function
-    | [] -> [], fpcur, Smap.empty
+    | [] -> [], fpcur, fvars
     | expr :: q ->
         let cexpr, fpnew, newfvars =
             closure_expr env fpcur fvars expr in
@@ -143,6 +145,24 @@ and closure_expr env fpcur fvars e = match e.expr with
     | TEblock b ->
         let cb, fpnew, newfvars = closure_block env fpcur fvars b in
         {desc=CEblock cb; t=e.t}, fpnew, newfvars
+    | TEcond(if_bexpr, _, if_block, elif_list, else_block_option) ->
+        let cbexpr1, fp1, fvars1 = closure_bexpr env fpcur fvars if_bexpr in
+        let cblock2, fp2, fvars2 = closure_block env fpcur fvars1 if_block in
+        let (fp3, fvars3), clist3 = List.fold_left_map
+            (fun (fp, fv) (be, b) ->
+                let cbe, fp1, fv1 = closure_bexpr env fpcur fv be in
+                let cb, fp2, fv2 = closure_block env fpcur fv1 b in
+                (fp |> min fp1 |> min fp1, fv2), (cbe, cb)
+            )
+            (fpcur, fvars2) elif_list
+        in
+        let coption4, fp4, fvars4 = begin match else_block_option with
+            | None -> None, fpcur, fvars3
+            | Some b -> let cb, fp, fv = closure_block env fpcur fvars3 b in
+                Some cb, fp, fv
+        end in
+        {desc=CEcond(cbexpr1, cblock2, clist3, coption4); t=e.t},
+        fp1 |> min fp2 |> min fp3 |> min fp4, fvars4
     | TEcall({caller=TCident "print"; t=_} , [be]) ->
         let cbe, fpnew, newfvars = closure_bexpr env fpcur fvars be in
         {desc=CEprint cbe; t=e.t}, fpnew, newfvars
@@ -155,7 +175,7 @@ and closure_expr env fpcur fvars e = match e.expr with
     | _ -> failwith "A faire [closure_expr]"
 
 and closure_fold_args env fpcur fvars = function
-    | [] -> [], fpcur, Smap.empty
+    | [] -> [], fpcur, fvars
     | expr :: q ->
         let cexpr, fpnew, newfvars =
             closure_bexpr env fpcur fvars expr in
@@ -187,6 +207,6 @@ let closure_file file =
     let cb, fp, fvars =
         closure_fold_block Smap.empty fp_init Smap.empty file.file in
     Smap.iter (fun s _ -> raise (VarUndef s)) fvars;
-    {desc=cb; t=file.t}, fp
+    ({desc=cb; t=file.t}, fp, !gfuns : c_file)
 
 

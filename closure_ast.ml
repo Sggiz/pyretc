@@ -9,8 +9,6 @@ type var =
     | Vlocal of int
     | Vclos of int
 
-type frame_size = int
-
 type 'a c_ast = { desc : 'a ; t : typ }
 
 type c_block = cc_block c_ast
@@ -18,7 +16,7 @@ and cc_block = c_stmt list
 
 and c_stmt = cc_stmt c_ast
 and cc_stmt =
-    | CSfun of int * string * var array * frame_size
+    | CSfun of int * string * var array
     | CSdef of int * c_bexpr
     | CSbexpr of c_bexpr
 
@@ -46,7 +44,7 @@ and cc_caller =
     | CCvar of var
     | CCcall of c_caller * c_bexpr list
 
-type c_file = cc_file c_ast * frame_size
+type c_file = cc_file c_ast * int * (string * int * c_block) list
 and cc_file = c_stmt list
 
 
