@@ -36,7 +36,7 @@ and cc_expr =
         * c_block option
     | CEprint of c_bexpr
     | CEcall of c_caller * c_bexpr list
-    | CEcases of c_bexpr * c_block * c_block
+    | CEcases of c_bexpr * c_block * int option * int option * c_block
         (* cas empty puis cas link *)
 
 and c_caller = cc_caller c_ast

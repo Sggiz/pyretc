@@ -47,7 +47,7 @@ let prealloc_data =
     label ".pre_false" ++ dquad [0] ++
     label ".pre_true" ++ dquad [0] ++
     label "empty" ++ dquad [0] ++
-
+    label "num_modulo" ++ dquad [0] ++
     label "link" ++ dquad [0] ++
     label "each" ++ dquad [0] ++
     label "fold" ++ dquad [0] ++
@@ -77,7 +77,13 @@ let prealloc_init =
     call_my_malloc 9 ++
     movb (imm 6) (ind rax) ++
     movq (ilab "link_code") (ind ~ofs:1 rax) ++
-    movq !%rax (lab "link")
+    movq !%rax (lab "link") ++
+
+    call_my_malloc 9 ++
+    movb (imm 6) (ind rax) ++
+    movq (ilab "num_modulo_code") (ind ~ofs:1 rax) ++
+    movq !%rax (lab "num_modulo")
+
 
 (* Fonctions d'affichage *)
 
@@ -122,18 +128,53 @@ let print_str_code =
     popq rbp ++
     ret
 
-let call_print = function
-    | Typed_ast.Tnoth -> nop
-    | Tbool ->
-        movb (ind ~ofs:1 rdi) !%dil ++
-        call "print_bool"
-    | Tint ->
+let print_poly_code =
+    label "print_poly" ++
+    movb (ind rdi) !%r8b ++
+    cmpb (imm 0) !%r8b ++ je "nothing_case" ++
+    cmpb (imm 1) !%r8b ++ je "bool_case" ++
+    cmpb (imm 2) !%r8b ++ je "int_case" ++
+    cmpb (imm 3) !%r8b ++ je "str_case" ++
+    cmpb (imm 4) !%r8b ++ je "list_case" ++
+    cmpb (imm 5) !%r8b ++ je "list_case" ++
+    cmpb (imm 6) !%r8b ++ je "fun_case" ++
+
+    label "nothing_case" ++
+        leaq (lab ".Sprint_nothing") rdi ++ call "print_str" ++ ret ++
+    label "bool_case" ++
+        movb (ind ~ofs:1 rdi) !%dil ++ call "print_bool" ++ ret ++
+    label "int_case" ++
+        movq (ind ~ofs:1 rdi) !%rdi ++ call "print_int" ++ ret ++
+    label "str_case" ++
+        incq !%rdi ++ call "print_str" ++ ret ++
+    label "list_case" ++
+        pushq !%rdi ++
+        leaq (lab ".list_open") rdi ++
+        call "print_str" ++
+        popq rdi ++
+        label "list_loop" ++
+        cmpq !%rdi (lab "empty") ++
+        je "empty_case" ++
+        pushq !%rdi ++
         movq (ind ~ofs:1 rdi) !%rdi ++
-        call "print_int"
-    | Tstr ->
-        incq !%rdi ++
-        call "print_str"
-    | _ -> failwith "A faire [call_print]"
+        call "print_poly" ++
+        popq rdi ++
+        movq (ind ~ofs:9 rdi) !%rdi ++
+        cmpq !%rdi (lab "empty") ++
+        je "empty_case" ++
+        pushq !%rdi ++
+        leaq (lab ".list_sep") rdi ++
+        call "print_str" ++
+        popq rdi ++
+        jmp "list_loop" ++
+        label "empty_case" ++
+        leaq (lab ".list_close") rdi ++
+        call "print_str" ++
+        ret ++
+    label "fun_case" ++
+        ret
+
+let call_print _ = call "print_poly"
 
 (* Fonctions de manipulation de chaîne *)
 
@@ -165,38 +206,6 @@ let len_string_code =
     ret
 
 
-let concat_string_code =
-    (* Concatène la valeur rsi derrière la valeur rdi, résultat dans rax *)
-    label "concat_string" ++
-    pushq !%rsi ++
-    pushq !%rdi ++
-
-    incq !%rdi ++
-    call "len_string" ++
-    movq !%rax !%r8 ++
-
-    leaq (ind ~ofs:1 rsi) rdi ++
-    call "len_string" ++
-    movq !%rax !%r9 ++
-
-    movq !%r8 !%rdi ++
-    addq !%r9 !%rdi ++
-    addq (imm 2) !%rdi ++
-    call "my_malloc" ++
-
-    movb (imm 3) (ind rax) ++
-
-    leaq (ind ~ofs:1 rax) rsi ++
-    popq rdi ++
-    incq !%rdi ++
-    call "copy_string" ++
-
-    popq rdi ++
-    incq !% rdi ++
-    call "copy_string" ++
-
-    ret
-
 (* Fonctions primaires *)
 
 let link_code =
@@ -205,6 +214,22 @@ let link_code =
     movb (imm 5) (ind rax) ++
     movq (ind ~ofs:24 rbp) !%r8 ++ movq !%r8 (ind ~ofs:1 rax) ++
     movq (ind ~ofs:32 rbp) !%r8 ++ movq !%r8 (ind ~ofs:9 rax) ++
+    popq rbp ++ ret
+
+let num_modulo_code =
+    label "num_modulo_code" ++ pushq !%rbp ++ movq !%rsp !%rbp ++
+    movq (ind ~ofs:24 rbp) !%rax ++ movq (ind ~ofs:1 rax) !%rax ++ cqto ++
+    movq (ind ~ofs:32 rbp) !%r8 ++ movq (ind ~ofs:1 r8) !%r8 ++
+    idivq !%r8 ++
+    pushq !%rdx ++
+    call_my_malloc 9 ++
+    movb (imm 2) (ind rax) ++
+    popq r8 ++
+    movq (ind ~ofs:24 rbp) !%r9 ++ movq (ind ~ofs:1 r9) !%r9 ++
+    testq !%r9 !%r9 ++ jge "1f" ++ negq !%r8 ++ label "1" ++
+    movq (ind ~ofs:32 rbp) !%r9 ++ movq (ind ~ofs:1 r9) !%r9 ++
+    testq !%r9 !%r9 ++ jge "1f" ++ negq !%r8 ++ label "1" ++
+    movq !%r8 (ind ~ofs:1 rax) ++
     popq rbp ++ ret
 
 
@@ -365,14 +390,27 @@ and compile_bexpr_poly_cmp (e1 : c_expr) op (e2 : c_expr) =
     popq r13 ++ popq r12
 
 and compile_bexpr_str bexpr = match bexpr.desc with
-    | texpr, [] -> compile_expr texpr
-    | texpr1, (Ast.Add, texpr2) :: q ->
-        compile_expr texpr1 ++
-        pushq !%rax ++
-        compile_bexpr ({desc = (texpr2, q); t=bexpr.t}) ++
-        movq !%rax !%rsi ++
-        popq rdi ++
-        call "concat_string"
+    | expr, [] -> compile_expr expr
+    | expr1, (Ast.Add, expr2) :: q ->
+        let expr_list = expr1 :: expr2 :: List.map snd q in
+        let loop = get_new_label "copy_string_loop" in
+        pushq !%r12 ++
+        movq (imm 0) !%r12 ++
+        (List.fold_left (++) nop @@ List.rev_map
+            (fun expr ->
+                compile_expr expr ++ pushq !%rax ++
+                leaq (ind ~ofs:1 rax) rdi ++ call "len_string" ++
+                addq !%rax !%r12
+            ) expr_list) ++
+        movq !%r12 !%rdi ++ addq (imm 2) !%rdi ++ call "my_malloc" ++
+        movq (imm 3) (ind rax) ++
+        leaq (ind ~ofs:1 rax) rsi ++
+        movq (imm (List.length expr_list)) !%r12 ++
+        label loop ++
+            popq rdi ++ incq !%rdi ++ call "copy_string" ++
+            decq !%r12 ++ testq !%r12 !%r12 ++ jne loop ++
+        popq r12
+
     | _ -> failwith "A faire [compile_bexpr_str]"
 
 and compile_expr expr = match expr.desc with
@@ -432,7 +470,23 @@ and compile_expr expr = match expr.desc with
         pushq !%rax ++
         call_star (ind ~ofs:1 rax) ++
         addq (imm (8*(1 + List.length bexpr_list))) !%rsp
-    | _ -> failwith "A faire [compile_expr]"
+    | CEcases(bexpr, empty_block, pos_x, pos_y, link_block) ->
+        let link_case = get_new_label "link_case" in
+        let out = get_new_label "link_case_out" in
+        compile_bexpr bexpr ++
+        cmpq !%rax (lab "empty") ++
+        jne link_case ++
+        compile_block empty_block ++
+        jmp out ++
+        label link_case ++
+        (match pos_x with |None -> nop |Some pos ->
+            movq (ind ~ofs:1 rax) !%r8 ++
+            movq !%r8 (ind ~ofs:pos rbp)) ++
+        (match pos_y with |None -> nop |Some pos ->
+            movq (ind ~ofs:9 rax) !%r8 ++
+            movq !%r8 (ind ~ofs:pos rbp)) ++
+        compile_block link_block ++
+        label out
 
 and compile_caller c = match c.desc with
     | CCvar v -> compile_var v
@@ -523,19 +577,24 @@ let compile_file (f: Typed_ast.t_file) ofile =
             print_int_code ++
             print_bool_code ++
             print_str_code ++
+            print_poly_code ++
             copy_string_code ++
             len_string_code ++
-            concat_string_code ++
             link_code ++
+            num_modulo_code ++
             codefun ++
 
             newline;
 
           data =
+            label ".Sprint_nothing" ++ string "nothing" ++
             label ".Sprint_false" ++ string "false" ++
             label ".Sprint_true" ++ string "true" ++
             label ".Sprint_int" ++ string "%d" ++
             label ".Sprint_str" ++ string "%s" ++
+            label ".list_open" ++ string "[list: " ++
+            label ".list_sep" ++ string ", " ++
+            label ".list_close" ++ string "]" ++
             prealloc_data ++
             (Hashtbl.fold
                 (

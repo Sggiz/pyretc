@@ -32,14 +32,14 @@ let clos = ref 0
 let reset () =
     Hashtbl.reset genv;
     List.iter add_genv
-        ["nothing";"empty";"link"];
+        ["nothing";"num-modulo";"empty";"link"];
 (*  ["nothing";"num-modulo";"empty";"link";"print";"raise";"each";"fold"]; *)
 (* pas besoin d'ajouter "print" *)
     gfuns := [];
     curr_fun_id := 0;
     clos := 0
 
-
+let correct_name name = if name = "num-modulo" then "num_modulo" else name
 
 
 (* Down : env, fpcur, fvars, typed_ast *)
@@ -92,19 +92,22 @@ and closure_stmt env fpcur fvars s = match s.stmt with
         add_gfun (gfun_name, fpnew, cb);
 (*         add_genv gfun_name; *)
         let pos_array = Array.make !clos (Vlocal 0) in
-        Smap.iter (fun x clos_pos ->
-                let v = (
-                if x = f then Vlocal 0
-                else if Hashtbl.mem genv x then Vglobal x
-                else if Smap.mem x env then Vlocal (Smap.find x env)
-                else if Smap.mem x fvars then Vclos (Smap.find x env)
-                else raise (VarUndef x)
-                ) in
-                pos_array.(clos_pos) <- v
-            ) newfvars;
-        let cf = {desc=CSfun(fpcur, gfun_name, pos_array); t=s.t} in
         clos := save_clos;
-        cf, fpcur, fvars, Some f
+        let new_ext_fvars = Smap.fold (fun x clos_pos fv ->
+                let v, nfv = (
+                if x = f then Vlocal 0, fv
+                else if Hashtbl.mem genv x then Vglobal (correct_name x), fv
+                else if Smap.mem x env then Vlocal (Smap.find x env), fv
+                else if Smap.mem x fvars then Vclos (Smap.find x fvars), fv
+                else (
+                    let res = Vclos !clos, Smap.add x !clos fv in
+                    clos := !clos + 1; res
+                )) in
+                pos_array.(clos_pos) <- v; nfv
+            ) newfvars fvars
+        in
+        let cf = {desc=CSfun(fpcur, gfun_name, pos_array); t=s.t} in
+        cf, fpcur, new_ext_fvars, Some f
 
 and closure_bexpr env fpcur fvars { bexpr = e, op_list; t=t } =
     let expr_list = e :: (List.map snd op_list) in
@@ -130,9 +133,9 @@ and closure_expr env fpcur fvars e = match e.expr with
     | TEstring s -> {desc=CEstring s; t=e.t}, fpcur, fvars
     | TEident x ->
         let v, newfvars = (
-            if Hashtbl.mem genv x then Vglobal x, fvars
+            if Hashtbl.mem genv x then Vglobal (correct_name x), fvars
             else if Smap.mem x env then Vlocal (Smap.find x env), fvars
-            else if Smap.mem x fvars then Vclos (Smap.find x env), fvars
+            else if Smap.mem x fvars then Vclos (Smap.find x fvars), fvars
             else (
                 let res = Vclos !clos, Smap.add x !clos fvars in
                 clos := !clos + 1; res
@@ -171,6 +174,16 @@ and closure_expr env fpcur fvars e = match e.expr with
         let cbe_list, fpmin, newfvars2 =
             closure_fold_args env fpcur newfvars be_list in
         {desc=CEcall(cc, cbe_list); t=e.t}, min fpnew fpmin, newfvars2
+    | TEcases(be, _, [("empty", None, b1);("link", (Some [x;y]), b2)]) ->
+        let cbe, fp0, fvars0 = closure_bexpr env fpcur fvars be in
+        let cb1, fp1, fvars1 = closure_block env fpcur fvars0 b1 in
+        let envx, fpx, pos_x = if x="_" then env, fpcur, None else
+            Smap.add x fpcur env, fpcur-8, Some fpcur in
+        let next_env, fpnext, pos_y = if y="_" then envx, fpx, None else
+            Smap.add y fpx envx, fpx-8, Some fpx in
+        let cb2, fp2, fvars2 = closure_block next_env fpnext fvars1 b2 in
+        {desc=CEcases(cbe, cb1, pos_x, pos_y, cb2); t=e.t},
+        fp0 |> min fp1 |> min fp2, fvars2
 
     | _ -> failwith "A faire [closure_expr]"
 
@@ -186,9 +199,9 @@ and closure_fold_args env fpcur fvars = function
 and closure_caller env fpcur fvars c = match c.caller with
     | TCident f ->
         let v, newfvars = (
-            if Hashtbl.mem genv f then Vglobal f, fvars
+            if Hashtbl.mem genv f then Vglobal (correct_name f), fvars
             else if Smap.mem f env then Vlocal (Smap.find f env), fvars
-            else if Smap.mem f fvars then Vclos (Smap.find f env), fvars
+            else if Smap.mem f fvars then Vclos (Smap.find f fvars), fvars
             else (
                 let res = Vclos !clos, Smap.add f !clos fvars in
                 clos := !clos + 1; res
