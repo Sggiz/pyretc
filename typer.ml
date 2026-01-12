@@ -140,6 +140,14 @@ let find s e =
 
 (* Fonctions de vérification de types *)
 
+(* Vérificateur superficiel, pour la production de code *)
+let sup_diff t1 t2 = match head t1, head t2 with
+    | Tany, _ | _, Tany -> false
+    | Tnoth, Tnoth | Tbool, Tbool | Tint, Tint | Tstr, Tstr -> false
+    | Tlist _, Tlist _ -> false
+    | Tfun _, Tfun _ -> false
+    | _ -> true
+
 let rec rec_unify t1 t2 = match head t1, head t2 with
     | Tany, _ | _, Tany
     | Tnoth, Tnoth | Tbool, Tbool | Tint, Tint | Tstr, Tstr ->

@@ -17,10 +17,10 @@ let get_new_label s =
     try
         let n = Hashtbl.find label_table s in
         Hashtbl.replace label_table s (n+1);
-        Format.sprintf "%s_%d" s n
+        Format.sprintf ".%s_%d" s n
     with Not_found ->
         Hashtbl.add label_table s 1;
-        Format.sprintf "%s_%d" s 0
+        Format.sprintf ".%s_%d" s 0
 
 (* Raccourci pour ajouter des sauts de ligne dans le code assembleur produit *)
 let newline = inline "\n"
@@ -43,14 +43,15 @@ let my_malloc_code =
 
 
 let prealloc_data =
-    label "nothing" ++
-    dquad [0] ++
-    label ".pre_false" ++
-    dquad [0] ++
-    label ".pre_true" ++
-    dquad [0] ++
-    label "empty" ++
-    dquad [0]
+    label "nothing" ++ dquad [0] ++
+    label ".pre_false" ++ dquad [0] ++
+    label ".pre_true" ++ dquad [0] ++
+    label "empty" ++ dquad [0] ++
+
+    label "link" ++ dquad [0] ++
+    label "each" ++ dquad [0] ++
+    label "fold" ++ dquad [0] ++
+    label "raise" ++ dquad [0]
 
 let prealloc_init =
     comment "Preallocations" ++
@@ -71,7 +72,12 @@ let prealloc_init =
 
     call_my_malloc 1 ++
     movb (imm 4) (ind rax) ++
-    movq !%rax (lab "empty")
+    movq !%rax (lab "empty") ++
+
+    call_my_malloc 9 ++
+    movb (imm 6) (ind rax) ++
+    movq (ilab "link_code") (ind ~ofs:1 rax) ++
+    movq !%rax (lab "link")
 
 (* Fonctions d'affichage *)
 
@@ -191,6 +197,62 @@ let concat_string_code =
 
     ret
 
+(* Fonctions primaires *)
+
+let link_code =
+    label "link_code" ++ pushq !%rbp ++ movq !%rsp !%rbp ++
+    call_my_malloc 17 ++
+    movb (imm 5) (ind rax) ++
+    movq (ind ~ofs:24 rbp) !%r8 ++ movq !%r8 (ind ~ofs:1 rax) ++
+    movq (ind ~ofs:32 rbp) !%r8 ++ movq !%r8 (ind ~ofs:9 rax) ++
+    popq rbp ++ ret
+
+
+(* Fonction d'aide *)
+
+let rec structural_cmp eq neq t1 t2 =
+    (* valeurs à comparer dans r12 et r13 *)
+    match Typer.head t1, Typer.head t2 with
+    | Typed_ast.(Tnoth, Tnoth) -> jmp eq
+    | Typed_ast.(Tint, Tint) ->
+        movq (ind ~ofs:1 r12) !%r12 ++ movq (ind ~ofs:1 r13) !%r13 ++
+        cmpq !%r12 !%r13 ++ je eq ++ jmp neq
+    | Typed_ast.(Tbool, Tbool) ->
+        cmpq !%r12 !%r13 ++ je eq ++ jmp neq
+    | Typed_ast.(Tstr, Tstr) ->
+        label "1" ++
+        incq !%r12 ++ incq !%r13 ++
+        movb (ind r12) !%r8b ++
+        movb (ind r13) !%r9b ++
+        cmpb !%r8b !%r9b ++ jne neq ++
+        testb !%r8b !%r8b ++ jne "1b" ++ jmp eq
+    | Typed_ast.(Tlist t1, Tlist t2) ->
+        let list_entry = get_new_label "list_entry" in
+        let list1_notempty = get_new_label "list1_notempty" in
+        let lists = get_new_label "lists" in
+        let inter_eq = get_new_label "inter_eq" in
+        let inter_neq = get_new_label "inter_neq" in
+        label list_entry ++
+        cmpq !%r12 (lab "empty") ++ jne list1_notempty ++
+        cmpq !%r13 (lab "empty") ++ jne neq ++ jmp eq ++
+        label list1_notempty ++
+        cmpq !%r13 (lab "empty") ++ jne lists ++ jmp neq ++
+        label lists ++
+        pushq !%r12 ++ pushq !%r13 ++
+        movq (ind ~ofs:1 r12) !%r12 ++ movq (ind ~ofs:1 r13) !%r13 ++
+        structural_cmp inter_eq inter_neq t1 t2 ++
+        label inter_eq ++
+        popq r13 ++ movq (ind ~ofs:9 r13) !%r13 ++
+        popq r12 ++ movq (ind ~ofs:9 r12) !%r12 ++
+        jmp list_entry ++
+        label inter_neq ++
+        popq r13 ++ popq r12 ++ jmp neq
+
+(*     | Typed_ast.(Tfun _, Tfun _) -> failwith "Valeurs non comparables" *)
+
+    | _ -> (* comparaison physique *)
+        cmpq !%r12 !%r13 ++ je eq ++ jmp neq
+
 
 
 (* Compilation ... *)
@@ -292,46 +354,15 @@ and compile_bexpr_poly_cmp (e1 : c_expr) op (e2 : c_expr) =
         | Ast.Neq ->movq (lab ".pre_false") !%rax, movq (lab ".pre_true") !%rax
         | _ -> failwith "A faire [compile_bexpr_poly_cmp]"
     in
-    if e1.t <> e2.t then
-        res_neq
-    else match e1.t with
-    | Tint ->
-        compile_expr e1 ++
-        pushq (ind ~ofs:1 rax) ++
-        compile_expr e2 ++
-        movq (ind ~ofs:1 rax) !%r8 ++
-        popq r9 ++
-        cmpq !%r8 !%r9 ++
-        je "1f" ++ res_neq ++ jmp "2f" ++ label "1" ++ res_eq ++ label "2"
-    | Tbool ->
-        compile_expr e1 ++
-        pushq !%rax ++
-        compile_expr e2 ++
-        popq r8 ++
-        cmpq !%rax !%r8 ++
-        je "1f" ++ res_neq ++ jmp "2f" ++ label "1" ++ res_eq ++ label "2"
-    | Tstr ->
-        pushq !%r12 ++ pushq !%r13 ++
-        compile_expr e1 ++
-        movq !%rax !%r12 ++
-        compile_expr e2 ++
-        movq !%rax !%r13 ++
-        label "1" ++
-        incq !%r12 ++ incq !%r13 ++
-        movb (ind r12) !%r8b ++
-        movb (ind r13) !%r9b ++
-        cmpb !%r8b !%r9b ++
-        jne "2f" ++
-        testb !%r8b !%r8b ++
-        jne "1b" ++
-        res_eq ++
-        jmp "3f" ++
-        label "2" ++
-        res_neq ++
-        label "3" ++
-        popq r13 ++ popq r12
-
-    | _ -> failwith "A faire [compile_bexpr_poly_cmp]"
+    let res_eq_label = get_new_label "res_eq" in
+    let res_neq_label = get_new_label "res_neq" in
+    pushq !%r12 ++ pushq !%r13 ++
+    compile_expr e1 ++ movq !%rax !%r12 ++
+    compile_expr e2 ++ movq !%rax !%r13 ++
+    structural_cmp res_eq_label res_neq_label e1.t e2.t ++
+    label res_eq_label ++ res_eq ++ jmp "1f"++
+    label res_neq_label ++ res_neq ++ label "1" ++
+    popq r13 ++ popq r12
 
 and compile_bexpr_str bexpr = match bexpr.desc with
     | texpr, [] -> compile_expr texpr
@@ -433,7 +464,7 @@ and compile_stmt i stmt =
         comment_line ++
         call_my_malloc (9 + 8*nb_fvars) ++
         movq (imm 6) (ind rax) ++
-        movq (ilab gfun_name) (ind ~ofs:1 rax) ++ (* lab ou ilab? *)
+        movq (ilab gfun_name) (ind ~ofs:1 rax) ++
         (Array.fold_left (++) nop @@ Array.mapi
             (fun k v -> match v with
             | Vglobal x -> nop (* normalement inatteignable *)
@@ -495,6 +526,7 @@ let compile_file (f: Typed_ast.t_file) ofile =
             copy_string_code ++
             len_string_code ++
             concat_string_code ++
+            link_code ++
             codefun ++
 
             newline;

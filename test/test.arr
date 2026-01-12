@@ -1,20 +1,17 @@
 
-fun foo(f :: (Number -> Nothing), n :: Number) -> Nothing:
-  if n == 0 block:
-    nothing
-  else:
-    f(n)
-    foo(f, n - 1)
-  end
-end
+print(empty == empty)
+print(empty <> empty)
+print(empty == link(1, empty))
+print(empty <> link(1, empty))
+print("\n")
+print(link(1, empty) == link(1, empty))
+print(link(1, empty) <> link(1, empty))
+print(link(1, empty) == link(2, empty))
+print(link(1, empty) <> link(2, empty))
+print(link(1, empty) == link(2, link(3, empty)))
+print(link(1, empty) <> link(2, link(3, empty)))
 
-fun println(x :: Number) -> Nothing block:
-  print(x)
-  print("\n")
-  nothing
-end
-
-foo(println, 10)
+print("\n")
 
 
 
