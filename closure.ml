@@ -170,6 +170,35 @@ and closure_expr env fpcur fvars e = match e.expr with
         let cbe_list, fpmin, newfvars2 =
             closure_fold_args env fpcur newfvars be_list in
         {desc=CEcall(cc, cbe_list); t=e.t}, min fpnew fpmin, newfvars2
+    | TElam(arg_l, _, b) ->
+        let save_clos = !clos in
+        clos := 0;
+        let funbody_env, _ =
+            List.fold_left
+                (fun (env, pos) arg -> Smap.add arg pos env, pos+8)
+                (Smap.empty, 24)
+                arg_l
+        in
+        let cb, fpnew, newfvars =
+            closure_block funbody_env fp_init Smap.empty b in
+        let gfun_name = get_fun_name () in
+        add_gfun (gfun_name, fpnew, cb);
+        let pos_array = Array.make !clos (Vlocal 0) in
+        clos := save_clos;
+        let new_ext_fvars = Smap.fold (fun x clos_pos fv ->
+                let v, nfv = (
+                if Hashtbl.mem genv x then Vglobal (correct_name x), fv
+                else if Smap.mem x env then Vlocal (Smap.find x env), fv
+                else if Smap.mem x fvars then Vclos (Smap.find x fvars), fv
+                else (
+                    let res = Vclos !clos, Smap.add x !clos fv in
+                    clos := !clos + 1; res
+                )) in
+                pos_array.(clos_pos) <- v; nfv
+            ) newfvars fvars
+        in
+        let cf = {desc=CElam(gfun_name, pos_array); t=e.t} in
+        cf, fpcur, new_ext_fvars
     | TEcases(be, _, [("empty", None, b1);("link", (Some [x;y]), b2)]) ->
         let cbe, fp0, fvars0 = closure_bexpr env fpcur fvars be in
         let cb1, fp1, fvars1 = closure_block env fpcur fvars0 b1 in

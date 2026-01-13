@@ -496,6 +496,22 @@ and compile_expr expr = match expr.desc with
         pushq !%rax ++
         call_star (ind ~ofs:1 rax) ++
         addq (imm (8*(1 + List.length bexpr_list))) !%rsp
+    | CElam(gfun_name, fvars) ->
+        let nb_fvars = Array.length fvars in
+        call_my_malloc (9 + 8*nb_fvars) ++
+        movq (imm 6) (ind rax) ++
+        movq (ilab gfun_name) (ind ~ofs:1 rax) ++
+        (Array.fold_left (++) nop @@ Array.mapi
+            (fun k v -> match v with
+            | Vglobal x -> nop (* normalement inatteignable *)
+            | Vlocal p ->
+                movq (ind ~ofs:p rbp) !%r8 ++
+                movq !%r8 (ind ~ofs:(9 + 8*k) rax)
+            | Vclos j ->
+                movq (ind ~ofs:16 rbp) !%r8 ++
+                movq (ind ~ofs:(9 + 8*j) r8) !%r8 ++
+                movq !%r8 (ind ~ofs:(9 + 8*k) rax)
+            ) fvars)
     | CEcases(bexpr, empty_block, pos_x, pos_y, link_block) ->
         let link_case = get_new_label "link_case" in
         let out = get_new_label "link_case_out" in

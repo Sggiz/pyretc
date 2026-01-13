@@ -35,6 +35,7 @@ and cc_expr =
     | CEcond of c_bexpr * c_block * (c_bexpr * c_block) list
         * c_block option
     | CEcall of c_caller * c_bexpr list
+    | CElam of string * var array
     | CEcases of c_bexpr * c_block * int option * int option * c_block
         (* cas empty puis cas link *)
 

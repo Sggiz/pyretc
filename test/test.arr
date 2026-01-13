@@ -1,11 +1,11 @@
 
 
-fun foo(f :: (Number -> Number)) -> Number: f(42) end
-fun bar(f :: (Any -> Any)) -> Any: f("\n") end
+l = link(1, link(2, link(3, link(4, link(5, empty)))))
 
-foo(print)
-bar(print)
-print(foo(print))
-print(bar(print))
+a = for fold(s :: Number from 0, x :: Number from l) -> Number:
+  s + x
+end
 
+print(a)
+print("\n")
 
