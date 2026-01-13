@@ -93,7 +93,13 @@ let prealloc_init =
     call_my_malloc 9 ++
     movb (imm 6) (ind rax) ++
     movq (ilab "each_code") (ind ~ofs:1 rax) ++
-    movq !%rax (lab "each")
+    movq !%rax (lab "each") ++
+
+    call_my_malloc 9 ++
+    movb (imm 6) (ind rax) ++
+    movq (ilab "fold_code") (ind ~ofs:1 rax) ++
+    movq !%rax (lab "fold")
+
 
 
 (* Fonctions d'affichage *)
@@ -265,6 +271,27 @@ let each_code =
     cmpq !%r13 (lab "empty") ++
     jne "1b" ++
     addq (imm 16) !%rsp ++ popq rbp ++ ret
+
+let fold_code =
+    label "fold_code" ++ pushq !%rbp ++ movq !%rsp !%rbp ++
+    pushq !%r12 ++ pushq !%r13 ++ pushq !%r14 ++
+    movq (ind ~ofs:24 rbp) !%r12 ++
+    movq (ind ~ofs:32 rbp) !%r14 ++
+    movq (ind ~ofs:40 rbp) !%r13 ++
+    cmpq !%r8 (lab "empty") ++
+    jne "1f" ++
+    popq r14 ++ popq r13 ++ popq r12 ++ popq rbp ++ ret ++
+    label "1" ++
+    pushq (ind ~ofs:1 r13) ++
+    pushq !%r14 ++
+    pushq !%r12 ++
+    call_star (ind ~ofs:1 r12) ++ movq !%rax !%r14 ++
+    addq (imm 24) !%rsp ++
+    movq (ind ~ofs:9 r13) !%r13 ++
+    cmpq !%r13 (lab "empty") ++
+    jne "1b" ++
+    popq r14 ++ popq r13 ++ popq r12 ++ popq rbp ++ ret
+
 
 
 (* Fonction d'aide *)
@@ -625,6 +652,7 @@ let compile_file (f: Typed_ast.t_file) ofile =
             link_code ++
             num_modulo_code ++
             each_code ++
+            fold_code ++
             codefun ++
 
             newline;

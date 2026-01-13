@@ -32,7 +32,7 @@ let clos = ref 0
 let reset () =
     Hashtbl.reset genv;
     List.iter add_genv
-        ["nothing";"num-modulo";"empty";"link";"print";"each"];
+        ["nothing";"num-modulo";"empty";"link";"print";"each";"fold"];
 (*  ["nothing";"num-modulo";"empty";"link";"print";"raise";"each";"fold"]; *)
     gfuns := [];
     curr_fun_id := 0;
