@@ -49,6 +49,7 @@ let prealloc_data =
     label "empty" ++ dquad [0] ++
     label "num_modulo" ++ dquad [0] ++
     label "link" ++ dquad [0] ++
+    label "print" ++ dquad [0] ++
     label "each" ++ dquad [0] ++
     label "fold" ++ dquad [0] ++
     label "raise" ++ dquad [0]
@@ -70,6 +71,11 @@ let prealloc_init =
     movb (imm 1) (ind ~ofs:1 rax) ++
     movq !%rax (lab ".pre_true") ++
 
+    call_my_malloc 9 ++
+    movb (imm 6) (ind rax) ++
+    movq (ilab "print_code") (ind ~ofs:1 rax) ++
+    movq !%rax (lab "print") ++
+
     call_my_malloc 1 ++
     movb (imm 4) (ind rax) ++
     movq !%rax (lab "empty") ++
@@ -82,7 +88,12 @@ let prealloc_init =
     call_my_malloc 9 ++
     movb (imm 6) (ind rax) ++
     movq (ilab "num_modulo_code") (ind ~ofs:1 rax) ++
-    movq !%rax (lab "num_modulo")
+    movq !%rax (lab "num_modulo") ++
+
+    call_my_malloc 9 ++
+    movb (imm 6) (ind rax) ++
+    movq (ilab "each_code") (ind ~ofs:1 rax) ++
+    movq !%rax (lab "each")
 
 
 (* Fonctions d'affichage *)
@@ -128,8 +139,9 @@ let print_str_code =
     popq rbp ++
     ret
 
-let print_poly_code =
-    label "print_poly" ++
+let print_code =
+    label "print_code" ++ pushq !%rbp ++ movq !%rsp !%rbp ++
+    movq (ind ~ofs:24 rbp) !%rdi ++
     movb (ind rdi) !%r8b ++
     cmpb (imm 0) !%r8b ++ je "nothing_case" ++
     cmpb (imm 1) !%r8b ++ je "bool_case" ++
@@ -140,13 +152,14 @@ let print_poly_code =
     cmpb (imm 6) !%r8b ++ je "fun_case" ++
 
     label "nothing_case" ++
-        leaq (lab ".Sprint_nothing") rdi ++ call "print_str" ++ ret ++
+        leaq (lab ".Sprint_nothing") rdi ++ call "print_str" ++
+        jmp "print_out" ++
     label "bool_case" ++
-        movb (ind ~ofs:1 rdi) !%dil ++ call "print_bool" ++ ret ++
+        movb (ind ~ofs:1 rdi) !%dil ++ call "print_bool" ++ jmp "print_out" ++
     label "int_case" ++
-        movq (ind ~ofs:1 rdi) !%rdi ++ call "print_int" ++ ret ++
+        movq (ind ~ofs:1 rdi) !%rdi ++ call "print_int" ++ jmp "print_out" ++
     label "str_case" ++
-        incq !%rdi ++ call "print_str" ++ ret ++
+        incq !%rdi ++ call "print_str" ++ jmp "print_out" ++
     label "list_case" ++
         pushq !%rdi ++
         leaq (lab ".list_open") rdi ++
@@ -156,8 +169,10 @@ let print_poly_code =
         cmpq !%rdi (lab "empty") ++
         je "empty_case" ++
         pushq !%rdi ++
-        movq (ind ~ofs:1 rdi) !%rdi ++
-        call "print_poly" ++
+        pushq (ind ~ofs:1 rdi) ++
+        pushq (ind ~ofs:16 rbp) ++
+        call "print_code" ++
+        addq (imm 16) !%rsp ++
         popq rdi ++
         movq (ind ~ofs:9 rdi) !%rdi ++
         cmpq !%rdi (lab "empty") ++
@@ -170,11 +185,12 @@ let print_poly_code =
         label "empty_case" ++
         leaq (lab ".list_close") rdi ++
         call "print_str" ++
-        ret ++
+        jmp "print_out" ++
     label "fun_case" ++
-        ret
+        jmp "print_out" ++
 
-let call_print _ = call "print_poly"
+    label "print_out" ++
+        movq (ind ~ofs:24 rbp) !%rax ++ popq rbp ++ ret
 
 (* Fonctions de manipulation de chaîne *)
 
@@ -231,6 +247,24 @@ let num_modulo_code =
     testq !%r9 !%r9 ++ jge "1f" ++ negq !%r8 ++ label "1" ++
     movq !%r8 (ind ~ofs:1 rax) ++
     popq rbp ++ ret
+
+let each_code =
+    label "each_code" ++ pushq !%rbp ++ movq !%rsp !%rbp ++
+    pushq !%r12 ++ pushq !%r13 ++
+    movq (ind ~ofs:24 rbp) !%r12 ++
+    movq (ind ~ofs:32 rbp) !%r13 ++
+    cmpq !%r8 (lab "empty") ++
+    jne "1f" ++
+    addq (imm 16) !%rsp ++ popq rbp ++ ret ++
+    label "1" ++
+    pushq (ind ~ofs:1 r13) ++
+    pushq !%r12 ++
+    call_star (ind ~ofs:1 r12) ++
+    addq (imm 16) !%rsp ++
+    movq (ind ~ofs:9 r13) !%r13 ++
+    cmpq !%r13 (lab "empty") ++
+    jne "1b" ++
+    addq (imm 16) !%rsp ++ popq rbp ++ ret
 
 
 (* Fonction d'aide *)
@@ -455,14 +489,6 @@ and compile_expr expr = match expr.desc with
             | Some b -> compile_block b
         ) ++
         label lout
-
-(*     | CEcall({desc=CCvar (Vglobal "print");t=_}, [bexpr]) *)
-    | CEprint bexpr ->
-        compile_bexpr bexpr ++
-        pushq !%rax ++
-        movq !%rax !%rdi ++
-        call_print bexpr.t ++
-        popq rax
     | CEcall(caller, bexpr_list) ->
         (List.fold_left (++) nop @@ List.rev_map
             (fun be -> compile_bexpr be ++ pushq !%rax) bexpr_list) ++
@@ -577,11 +603,12 @@ let compile_file (f: Typed_ast.t_file) ofile =
             print_int_code ++
             print_bool_code ++
             print_str_code ++
-            print_poly_code ++
             copy_string_code ++
             len_string_code ++
+            print_code ++
             link_code ++
             num_modulo_code ++
+            each_code ++
             codefun ++
 
             newline;

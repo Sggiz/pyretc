@@ -32,9 +32,8 @@ let clos = ref 0
 let reset () =
     Hashtbl.reset genv;
     List.iter add_genv
-        ["nothing";"num-modulo";"empty";"link"];
+        ["nothing";"num-modulo";"empty";"link";"print";"each"];
 (*  ["nothing";"num-modulo";"empty";"link";"print";"raise";"each";"fold"]; *)
-(* pas besoin d'ajouter "print" *)
     gfuns := [];
     curr_fun_id := 0;
     clos := 0
@@ -166,9 +165,6 @@ and closure_expr env fpcur fvars e = match e.expr with
         end in
         {desc=CEcond(cbexpr1, cblock2, clist3, coption4); t=e.t},
         fp1 |> min fp2 |> min fp3 |> min fp4, fvars4
-    | TEcall({caller=TCident "print"; t=_} , [be]) ->
-        let cbe, fpnew, newfvars = closure_bexpr env fpcur fvars be in
-        {desc=CEprint cbe; t=e.t}, fpnew, newfvars
     | TEcall(c, be_list) ->
         let cc, fpnew, newfvars = closure_caller env fpcur fvars c in
         let cbe_list, fpmin, newfvars2 =
