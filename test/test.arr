@@ -9,3 +9,5 @@ end
 print(a)
 print("\n")
 
+raise("test")
+

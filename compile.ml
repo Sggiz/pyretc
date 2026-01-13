@@ -98,8 +98,12 @@ let prealloc_init =
     call_my_malloc 9 ++
     movb (imm 6) (ind rax) ++
     movq (ilab "fold_code") (ind ~ofs:1 rax) ++
-    movq !%rax (lab "fold")
+    movq !%rax (lab "fold") ++
 
+    call_my_malloc 9 ++
+    movb (imm 6) (ind rax) ++
+    movq (ilab "raise_code") (ind ~ofs:1 rax) ++
+    movq !%rax (lab "raise")
 
 
 (* Fonctions d'affichage *)
@@ -193,7 +197,7 @@ let print_code =
         call "print_str" ++
         jmp "print_out" ++
     label "fun_case" ++
-        jmp "print_out" ++
+        jmp ".escape" ++
 
     label "print_out" ++
         movq (ind ~ofs:24 rbp) !%rax ++ popq rbp ++ ret
@@ -292,6 +296,14 @@ let fold_code =
     jne "1b" ++
     popq r14 ++ popq r13 ++ popq r12 ++ popq rbp ++ ret
 
+let raise_code =
+    label "raise_code" ++ pushq !%rbp ++ movq !%rsp !%rbp ++
+    andq (imm (-16)) !%rsp ++
+    movq (ind ~ofs:24 rbp) !%rsi ++ incq !%rsi ++
+    leaq (lab ".Sprint_error") rdi ++
+    call "printf" ++
+    jmp ".escape"
+
 
 
 (* Fonction d'aide *)
@@ -334,7 +346,7 @@ let rec structural_cmp eq neq t1 t2 =
         label inter_neq ++
         popq r13 ++ popq r12 ++ jmp neq
 
-(*     | Typed_ast.(Tfun _, Tfun _) -> failwith "Valeurs non comparables" *)
+    | Typed_ast.(Tfun _, Tfun _) -> jmp ".escape"
 
     | _ -> (* comparaison physique *)
         cmpq !%r12 !%r13 ++ je eq ++ jmp neq
@@ -623,6 +635,7 @@ let compile_file (f: Typed_ast.t_file) ofile =
             label "main" ++
             pushq !%rbp ++
             movq !%rsp !%rbp ++
+            movq !%rsp !%r15 ++
             addq (imm fp) !%rsp ++
 
             newline ++
@@ -642,6 +655,15 @@ let compile_file (f: Typed_ast.t_file) ofile =
             newline ++
             newline ++
 
+            label ".escape" ++
+            movq !%r15 !%rsp ++
+            popq rbp ++
+            movq (imm 1) !%rax ++
+            ret ++
+
+            newline ++
+            newline ++
+
             my_malloc_code ++
             print_int_code ++
             print_bool_code ++
@@ -653,6 +675,10 @@ let compile_file (f: Typed_ast.t_file) ofile =
             num_modulo_code ++
             each_code ++
             fold_code ++
+            raise_code ++
+
+            newline ++
+
             codefun ++
 
             newline;
@@ -666,6 +692,7 @@ let compile_file (f: Typed_ast.t_file) ofile =
             label ".list_open" ++ string "[list: " ++
             label ".list_sep" ++ string ", " ++
             label ".list_close" ++ string "]" ++
+            label ".Sprint_error" ++ string "\nError raised : %s\n" ++
             prealloc_data ++
             (Hashtbl.fold
                 (
