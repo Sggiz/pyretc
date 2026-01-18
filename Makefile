@@ -25,6 +25,9 @@ run: test/test.arr pyretc.exe
 jcfcompile: runtest.sh pyretc.exe
 	bash $< -3
 
+jcfall: runtest.sh pyretc.exe
+	bash $< -all
+
 clean:
 	dune clean
 

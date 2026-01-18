@@ -33,7 +33,6 @@ let reset () =
     Hashtbl.reset genv;
     List.iter add_genv
         ["nothing";"num-modulo";"empty";"link";"print";"raise";"each";"fold"];
-(*  ["nothing";"num-modulo";"empty";"link";"print";"raise";"each";"fold"]; *)
     gfuns := [];
     curr_fun_id := 0;
     clos := 0
@@ -41,8 +40,7 @@ let reset () =
 let correct_name name = if name = "num-modulo" then "num_modulo" else name
 
 
-(* Down : env, fpcur, fvars, typed_ast *)
-(* Up: c_ast, fpnew, fvars *)
+(* Explicitation des fermetures *)
 
 let rec closure_block env fpcur fvars b =
     let csl, fpnew, fvars = closure_fold_block env fpcur fvars b.block in
@@ -89,7 +87,6 @@ and closure_stmt env fpcur fvars s = match s.stmt with
             closure_block funbody_env fp_init Smap.empty b in
         let gfun_name = get_fun_name () in
         add_gfun (gfun_name, fpnew, cb);
-(*         add_genv gfun_name; *)
         let pos_array = Array.make !clos (Vlocal 0) in
         clos := save_clos;
         let new_ext_fvars = Smap.fold (fun x clos_pos fv ->
@@ -125,7 +122,6 @@ and closure_fold_bexpr env fpcur fvars = function
         cexpr :: cexprl, min fpnew fpmin, newfvars2
 
 and closure_expr env fpcur fvars e = match e.expr with
-    (* renvoie (cexpr, closmap, fpnew, closnew) *)
     | TTrue -> {desc=CTrue; t=e.t}, fpcur, fvars
     | TFalse -> {desc=CFalse; t=e.t}, fpcur, fvars
     | TEint n -> {desc=CEint n; t=e.t}, fpcur, fvars
